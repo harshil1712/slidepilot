@@ -6,6 +6,8 @@ Voice-driven semantic auto-advance for [Slidev](https://sli.dev/), powered by Cl
 
 ## Installation
 
+> The package will become installable when the first npm release is published. Until then, use the addon from the SlidePilot repository workspace.
+
 Install the package using your preferred package manager:
 
 ```bash

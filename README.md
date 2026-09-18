@@ -26,6 +26,8 @@ Manual keyboard and clicker navigation always continue to work.
 
 ## Install in a Slidev deck
 
+> The `slidev-addon-slidepilot` package is prepared for npm and will become installable when the first package release is published. Until then, clone this repository to run the included demo and Worker.
+
 SlidePilot follows Slidev's [addon installation conventions](https://sli.dev/guide/theme-addon#use-addon). Install the addon package:
 
 ```bash
