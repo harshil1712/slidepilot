@@ -1,0 +1,85 @@
+.github/ISSUE_TEMPLATE/bug_report.yml
+  s_a3e8697b9bbfb7::t_fe81a2bd27f57b 1-45
+.github/ISSUE_TEMPLATE/config.yml
+  s_a3e8697b9bbfb7::t_b7546b6b4ee15b 1-8
+.github/ISSUE_TEMPLATE/feature_request.yml
+  s_a3e8697b9bbfb7::t_d3061eeeff2cc7 1-24
+.github/dependabot.yml
+  s_a3e8697b9bbfb7::t_67638c291a71cd 1-16
+.github/pull_request_template.md
+  s_a3e8697b9bbfb7::t_2cbe28ec168886 1-15
+.github/workflows/ci.yml
+  s_a3e8697b9bbfb7::t_0cdde031e920d3 1-37
+.gitignore
+  s_a3e8697b9bbfb7::t_eb057d4dc9e845 1-11
+CHANGELOG.md
+  s_a3e8697b9bbfb7::t_381118654bd719 1-21
+CONTRIBUTING.md
+  s_a3e8697b9bbfb7::t_ed8d749f9f3aa8 1-57
+LICENSE
+  s_a3e8697b9bbfb7::t_e27eb2c4010918 1-21
+README.md
+  s_a3e8697b9bbfb7::t_bd602c337fbf68 1-243
+SECURITY.md
+  s_a3e8697b9bbfb7::t_95c7575a156170 1-15
+apps/demo/package.json
+  s_a3e8697b9bbfb7::t_f3fb9be5037139 1-21
+apps/demo/slides.md
+  s_a3e8697b9bbfb7::t_f06133f9379e9d 1-139
+apps/demo/style.css
+  s_997503afac0fc3::t_a9d3e6be62136d 1-108
+apps/worker/package.json
+  s_a3e8697b9bbfb7::t_6f45cd2c774ed6 1-24
+apps/worker/src/decision.test.ts
+  s_17107d21d67e79::t_ca999aec6d7308 1-140
+apps/worker/src/decision.ts
+  s_17107d21d67e79::t_d2127555fd755a 1-218
+apps/worker/src/index.ts
+  s_17107d21d67e79::t_7cf7a76b92ee4b 1-263
+apps/worker/src/types.ts
+  s_17107d21d67e79::t_a12b2971aa47f8 1-50
+package.json
+  s_a3e8697b9bbfb7::t_75955e309fc322 1-26
+packages/slidev-addon-slidepilot/LICENSE
+  s_a3e8697b9bbfb7::t_3a974c70abf74e 1-21
+packages/slidev-addon-slidepilot/README.md
+  s_a3e8697b9bbfb7::t_d000d8d8bbb005 1-54
+packages/slidev-addon-slidepilot/components/SlidePilot.vue
+  s_17107d21d67e79::t_909fc1cecc59d9 1-427
+packages/slidev-addon-slidepilot/package.json
+  s_a3e8697b9bbfb7::t_a3c0c47d537869 1-31
+pnpm-lock.yaml
+  s_997503afac0fc3::t_7e4992796bb3ad 1-9169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "e27953994c0e7e120115909fc52f3811af631176",
+  "prompts": {},
+  "sessions": {
+    "s_17107d21d67e79": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a0b004-6b3f-74d0-8783-8e62a18a4346",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "Harshil Agrawal <18901032+harshil1712@users.noreply.github.com>"
+    },
+    "s_997503afac0fc3": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a0af26-8fa8-739f-89c2-c2db2ae49af0",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Harshil Agrawal <18901032+harshil1712@users.noreply.github.com>"
+    },
+    "s_a3e8697b9bbfb7": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a0b181-c8c4-7327-9ebc-6bf79f2dde55",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Harshil Agrawal <18901032+harshil1712@users.noreply.github.com>"
+    }
+  }
+}
