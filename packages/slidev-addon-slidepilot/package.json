@@ -1,0 +1,31 @@
+{
+  "name": "slidev-addon-slidepilot",
+  "version": "0.1.0",
+  "description": "Voice-driven semantic auto-advance for Slidev, powered by Cloudflare Agents and TypeSafe AI's Jev",
+  "keywords": ["slidev", "slidev-addon", "voice", "cloudflare", "jev"],
+  "license": "MIT",
+  "author": "Harshil Agrawal",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/harshil1712/slidepilot.git",
+    "directory": "packages/slidev-addon-slidepilot"
+  },
+  "bugs": {
+    "url": "https://github.com/harshil1712/slidepilot/issues"
+  },
+  "homepage": "https://github.com/harshil1712/slidepilot#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "slidev": ">=53.0.0"
+  },
+  "dependencies": {
+    "agents": "0.23.0"
+  },
+  "peerDependencies": {
+    "@slidev/client": ">=53.0.0",
+    "vue": ">=3.5.0"
+  },
+  "files": ["components", "global.vue", "README.md", "LICENSE"]
+}

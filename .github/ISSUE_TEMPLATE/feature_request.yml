@@ -1,0 +1,24 @@
+name: Feature request
+description: Suggest a focused improvement to SlidePilot
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Presenter problem
+      description: What presentation workflow or failure mode should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the desired behavior and how manual navigation should continue to work.
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Safety and tradeoffs
+      description: Could this cause premature advances, expose data, or increase usage costs?

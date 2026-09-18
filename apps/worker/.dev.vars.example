@@ -1,0 +1,2 @@
+# Optional: uncomment to use Jev. Leave commented for deterministic mock mode.
+# TYPESAFE_API_KEY=ts_your_key_here

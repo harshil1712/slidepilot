@@ -1,0 +1,45 @@
+name: Bug report
+description: Report reproducible incorrect behavior in SlidePilot
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Please remove secrets and private transcript content before submitting.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the observed and expected behavior.
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Slidev addon
+        - Cloudflare Worker or Agent
+        - Workers AI speech-to-text
+        - Jev navigation decision
+        - Documentation or setup
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Include the slide configuration, sanitized transcript, logs, and minimal steps when possible.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: SlidePilot version or commit
+      placeholder: v0.1.0
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include browser, Node.js, Slidev, Wrangler, and agents package versions.

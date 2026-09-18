@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/harshil1712/slidepilot/security/advisories/new
+    about: Report security issues privately.
+  - name: Slidev documentation
+    url: https://sli.dev/guide/theme-addon#use-addon
+    about: Learn how Slidev addons are installed and configured.

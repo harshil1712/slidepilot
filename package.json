@@ -1,0 +1,26 @@
+{
+  "name": "slidepilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Voice-driven semantic auto-advance for Slidev, powered by Cloudflare Agents and TypeSafe AI's Jev",
+  "license": "MIT",
+  "author": "Harshil Agrawal",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/harshil1712/slidepilot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/harshil1712/slidepilot/issues"
+  },
+  "homepage": "https://github.com/harshil1712/slidepilot#readme",
+  "type": "module",
+  "packageManager": "pnpm@12.4.2",
+  "scripts": {
+    "dev": "pnpm --parallel --filter slidepilot-worker --filter slidepilot-demo dev",
+    "dev:worker": "pnpm --filter slidepilot-worker dev",
+    "dev:slides": "pnpm --filter slidepilot-demo dev",
+    "build": "pnpm --filter slidepilot-worker typecheck && pnpm --filter slidepilot-demo build",
+    "test": "pnpm --filter slidepilot-worker test",
+    "typecheck": "pnpm --filter slidepilot-worker typecheck"
+  }
+}

@@ -1,0 +1,3 @@
+<template>
+  <SlidePilot />
+</template>
