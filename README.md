@@ -70,9 +70,10 @@ cd slidepilot
 pnpm install
 ```
 
-Authenticate Wrangler and select an account when necessary:
+Enter the Worker workspace, authenticate Wrangler, and select an account when necessary:
 
 ```bash
+cd apps/worker
 pnpm wrangler login
 export CLOUDFLARE_ACCOUNT_ID=your_account_id
 ```
@@ -80,7 +81,6 @@ export CLOUDFLARE_ACCOUNT_ID=your_account_id
 Deploy the Worker:
 
 ```bash
-cd apps/worker
 pnpm deploy
 
 # Optional: omit this to use deterministic mock decisions.
