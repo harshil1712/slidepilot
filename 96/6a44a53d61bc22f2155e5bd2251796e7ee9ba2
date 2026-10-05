@@ -1,0 +1,19 @@
+apps/demo/slides.md
+  s_da2bb03d1549df::t_8de5c260506e3f 9,32-33,38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "966a44a53d61bc22f2155e5bd2251796e7ee9ba2",
+  "prompts": {},
+  "sessions": {
+    "s_da2bb03d1549df": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a0c9e7-e200-76e2-85b4-94c9719783ff",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Harshil Agrawal <18901032+harshil1712@users.noreply.github.com>"
+    }
+  }
+}
