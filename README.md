@@ -45,7 +45,6 @@ slidePilot:
   host: slidepilot.example.workers.dev
   agent: SlidePilot
   session: my-talk
-  presenterOnly: true
 ---
 ```
 
@@ -115,7 +114,7 @@ pnpm dev:worker
 pnpm dev:slides
 ```
 
-Open the URL printed by Slidev, expand the SlidePilot control, click **Start mic**, and grant microphone permission. The cover and final slides are intentionally manual; leave the cover with the keyboard before testing automatic navigation.
+Open the URL printed by Slidev, enter **Presenter Mode**, expand the SlidePilot control, click **Start mic**, and grant microphone permission. The control is never mounted in viewer/play mode. The cover and final slides are intentionally manual; leave the cover with the keyboard before testing automatic navigation.
 
 Flux streaming STT works with a local Durable Object and Wrangler's remote Workers AI binding. Nova-3 did not return its WebSocket in the same local setup during development, so the project currently uses Flux.
 
@@ -127,7 +126,6 @@ slidePilot:
   host: localhost:8787
   agent: SlidePilot
   session: my-talk
-  presenterOnly: true
   advanceThreshold: 0.68
   completeThreshold: 0.65
   stillExplainingCeiling: 0.55
@@ -139,11 +137,10 @@ slidePilot:
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `enabled` | `true` | Mount the SlidePilot control. |
+| `enabled` | `true` | Mount the SlidePilot control in presenter mode. |
 | `host` | Current page host | Worker hostname used by `VoiceClient`. |
 | `agent` | `SlidePilot` | Exported Cloudflare Agent class name. |
 | `session` | Deck title | Durable Agent instance name for this talk. |
-| `presenterOnly` | `true` | Show controls only in Slidev presenter mode. |
 | `advanceThreshold` | `0.68` | Minimum Jev probability that advancing is natural. |
 | `completeThreshold` | `0.65` | Minimum probability that the slide's core idea is complete. |
 | `stillExplainingCeiling` | `0.55` | Maximum probability that the presenter is continuing. |
@@ -203,9 +200,9 @@ curl http://localhost:8787/health
 
 ## Authentication, privacy, and cost
 
-SlidePilot does not currently implement application-level authentication. A publicly deployed Worker can be reached by other clients and may incur Workers AI and Jev usage. Protect non-demo deployments with Cloudflare Access or add an authentication layer appropriate for your environment.
+SlidePilot mounts the microphone control only in Slidev presenter mode; viewers cannot enable it from the viewer UI. **This is not an authorization boundary:** without separate access controls, anyone who can open the deck's presenter URL can enter presenter mode, and the Worker does not currently authenticate its WebSocket or evaluation endpoint. A publicly deployed Worker can be reached by other clients and may incur Workers AI and Jev usage. To ensure only the actual presenter can use the voice agent, restrict access to the presenter route **and** the Worker with an authentication layer (for example, Cloudflare Access) appropriate for your deployment. Do not put a shared secret in deck headmatter: it is delivered to viewers.
 
-If `curl` returns `403` with `error code: 1050`, the Cloudflare account's Access default-deny policy is blocking the hostname before requests reach the Worker. Exempt the hostname under **Zero Trust → Access controls → Access settings**, or create a self-hosted Access application with an appropriate Allow or Bypass policy.
+If `curl` returns `403` with `error code: 1050`, the Cloudflare account's Access default-deny policy is blocking the hostname before requests reach the Worker. For a protected deployment, create a self-hosted Access application with an Allow policy for the presenter; unauthenticated `curl` requests will still be blocked. An exemption or Bypass policy is suitable only for an intentionally public demo.
 
 Audio is processed by Workers AI using Deepgram Flux. When a TypeSafe API key is configured, completed transcripts plus the current slide's visible content and speaker notes are sent to Jev for evaluation. The TypeSafe key remains in the Worker and is never sent to the Slidev client.
 
@@ -234,7 +231,7 @@ Policy tests cover semantic completion without magic words, explicit continuatio
 - Slide content and notes are sent as text; very large values are truncated server-side.
 - `agents/voice` is experimental and pinned to an exact version.
 - The mock validates interaction and policy, not Jev behavior.
-- Authentication is left to the deployer in this experimental release.
+- Presenter-only UI is not authentication; protect the presenter route and Worker separately in non-demo deployments.
 
 ## Contributing
 

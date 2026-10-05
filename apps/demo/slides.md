@@ -6,10 +6,9 @@ addons:
   - slidev-addon-slidepilot
 slidePilot:
   enabled: true
-  host: localhost:8787
+  host: slidepilot-test.h-demo.workers.dev
   agent: SlidePilot
   session: slidepilot-poc
-  presenterOnly: false
   advanceThreshold: 0.68
   completeThreshold: 0.65
   stillExplainingCeiling: 0.55
@@ -30,13 +29,13 @@ fonts:
 <p class="lede">Cloudflare hears. Jev decides. Slidev moves.</p>
 
 <div class="instructions">
-  <span>01</span> Start the mic in the lower-right
-  <span>02</span> Move to the next slide manually
+  <span>01</span> Open presenter mode
+  <span>02</span> Start the mic, then advance manually
   <span>03</span> Present without saying “next slide”
 </div>
 
 <!--
-Start the SlidePilot microphone using the control in the lower-right. This cover is deliberately manual. Move to the next slide with the keyboard when you are ready.
+Open Slidev presenter mode, then start the SlidePilot microphone using the control in the lower-right. This cover is deliberately manual. Move to the next slide with the keyboard when you are ready.
 -->
 
 ---

@@ -25,7 +25,6 @@ slidePilot:
   host: slidepilot.example.workers.dev
   agent: SlidePilot
   session: my-talk
-  presenterOnly: true
 ---
 ```
 
@@ -45,6 +44,8 @@ slidePilot:
 ```
 
 ## Controls
+
+The microphone control and shortcuts are available only in Slidev presenter mode. Viewers cannot start the voice agent from play mode, even if they know the shortcuts. Presenter mode is not authentication: restrict access to the presenter route and Worker in non-demo deployments.
 
 - **Shift+V** — start or stop the microphone
 - **Shift+A** — arm or pause automatic navigation

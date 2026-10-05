@@ -8,7 +8,6 @@ interface SlidePilotConfig {
   host?: string;
   agent?: string;
   session?: string;
-  presenterOnly?: boolean;
   confidence?: number;
   advanceThreshold?: number;
   completeThreshold?: number;
@@ -57,11 +56,9 @@ const {
 const config = computed<SlidePilotConfig>(() =>
   ((configs as Record<string, unknown>).slidePilot || {}) as SlidePilotConfig,
 );
-const visible = computed(
-  () =>
-    config.value.enabled !== false &&
-    (config.value.presenterOnly === false || isPresenter.value),
-);
+// Defense in depth: global.vue only mounts this in presenter mode, but guard
+// actions here too (including shortcuts and delayed navigation).
+const enabled = computed(() => config.value.enabled !== false && isPresenter.value);
 
 const status = ref<VoiceStatus>("idle");
 const connected = ref(false);
@@ -104,7 +101,7 @@ function sessionName() {
 }
 
 function initializeClient() {
-  if (client || !visible.value) return;
+  if (client || !enabled.value) return;
 
   client = new VoiceClient({
     agent: config.value.agent || "SlidePilot",
@@ -144,23 +141,31 @@ function initializeClient() {
 }
 
 async function toggleListening() {
+  if (!enabled.value) return;
   error.value = "";
   if (!client) initializeClient();
   if (!client) return;
 
+  const voiceClient = client;
   if (active.value) {
-    client.endCall();
+    voiceClient.endCall();
     active.value = false;
     return;
   }
 
   try {
-    if (!client.connected) client.connect();
-    await client.startCall();
+    if (!voiceClient.connected) voiceClient.connect();
+    await voiceClient.startCall();
+    // Leaving presenter mode while permission is pending must not start a call.
+    if (!enabled.value || client !== voiceClient) {
+      voiceClient.endCall();
+      return;
+    }
     active.value = true;
     sendSlideContext();
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : "Could not start the microphone.";
+    if (enabled.value && client === voiceClient)
+      error.value = cause instanceof Error ? cause.message : "Could not start the microphone.";
   }
 }
 
@@ -190,7 +195,7 @@ function handleServerMessage(value: unknown) {
 }
 
 function maybeAdvance(result: NavigationDecision) {
-  if (!result.shouldAdvance || !active.value || !armed.value) return;
+  if (!enabled.value || !result.shouldAdvance || !active.value || !armed.value) return;
   if (Date.now() - lastAdvancedAt < (config.value.cooldownMs ?? 2_000)) return;
 
   if (advanceTimer) clearTimeout(advanceTimer);
@@ -200,6 +205,7 @@ function maybeAdvance(result: NavigationDecision) {
     if (
       decision.value?.id !== decisionId ||
       String(currentSlideNo.value) !== decisionPage ||
+      !enabled.value ||
       !active.value ||
       !armed.value
     ) return;
@@ -244,6 +250,7 @@ function sendSlideContext() {
 }
 
 function onKeydown(event: KeyboardEvent) {
+  if (!enabled.value) return;
   if (event.shiftKey && event.key.toLowerCase() === "v") {
     event.preventDefault();
     void toggleListening();
@@ -272,11 +279,12 @@ onBeforeUnmount(() => {
   client?.endCall();
   client?.disconnect();
   client = null;
+  active.value = false;
 });
 </script>
 
 <template>
-  <aside v-if="visible" class="slidepilot" :class="{ expanded, listening: active, armed }">
+  <aside v-if="enabled" class="slidepilot" :class="{ expanded, listening: active, armed }">
     <header class="pilot-header">
       <button class="pilot-mark" type="button" :aria-label="expanded ? 'Collapse SlidePilot' : 'Expand SlidePilot'" @click="expanded = !expanded">
         <span class="pilot-ring" :style="{ '--level': audioLevel }">
