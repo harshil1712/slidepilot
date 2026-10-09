@@ -1,0 +1,29 @@
+README.md
+  s_0e388aa105b35d::t_0228babbdf4380 145-163,216,234
+apps/demo/slides.md
+  s_0e388aa105b35d::t_a7ed839d710284 18
+apps/worker/src/audio.test.ts
+  s_0e388aa105b35d::t_9d0a08f463a4ef 1-126
+apps/worker/src/audio.ts
+  s_0e388aa105b35d::t_e95e9a581da6b9 1-218
+apps/worker/src/omni.test.ts
+  s_0e388aa105b35d::t_8861b9184e876c 1-121
+apps/worker/src/omni.ts
+  s_0e388aa105b35d::t_749d6b7311f92d 1-160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "309a6f6e0ea28b027a021d2793e5ace8fc5b022e",
+  "prompts": {},
+  "sessions": {
+    "s_0e388aa105b35d": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a121f7-f7e1-7601-b0f4-e9525d99631a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <18901032+harshil1712@users.noreply.github.com>"
+    }
+  }
+}
