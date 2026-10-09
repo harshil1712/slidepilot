@@ -4,6 +4,9 @@ export interface SlideContext {
   content: string;
   notes: string;
   nextSlideTitle: string;
+  /** Slidev clicks revealed so far, and the slide's total click count. */
+  clicks: number;
+  totalClicks: number;
   manual: boolean;
   thresholds: {
     advance: number;
@@ -13,7 +16,7 @@ export interface SlideContext {
   };
 }
 
-export interface JevSignals {
+export interface DecisionSignals {
   recommendedAction: "stay" | "next_slide";
   actionProbabilities: {
     stay: number;
@@ -29,12 +32,12 @@ export interface NavigationDecision {
   type: "slidepilot:decision";
   id: string;
   page: string;
+  clicks: number;
   action: "stay" | "next_slide";
   shouldAdvance: boolean;
   reason: string;
-  signals: JevSignals;
+  signals: DecisionSignals;
   latestUtterance: string;
-  provider: "jev" | "mock";
   model: string;
   latencyMs: number;
 }

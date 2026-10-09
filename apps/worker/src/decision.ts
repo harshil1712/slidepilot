@@ -1,12 +1,11 @@
-import { choice, noul, TypeSafeClient } from "@typesafe-ai/sdk";
 import type {
-  JevSignals,
+  DecisionSignals,
   NavigationDecision,
   SlideContext,
 } from "./types";
 
 export interface DecisionEnv {
-  TYPESAFE_API_KEY?: string;
+  AI: Ai;
 }
 
 export interface EvaluateInput {
@@ -14,36 +13,61 @@ export interface EvaluateInput {
   utterances: string[];
 }
 
+const CLEF_MODEL = "clef-flash";
+
 const QUESTIONS = {
-  action: choice(
-    "Based on everything said since this slide appeared, would advancing now feel natural to the audience?",
-    {
-      stay: "Stay only when a substantive point on this slide remains unexplained or the presenter clearly signals that the current thought will continue.",
-      next_slide: "Advance when the slide's core idea has been communicated and the latest utterance reaches a natural stopping point. No explicit transition phrase or sign-off is required.",
+  action: {
+    type: "choice",
+    instructions:
+      "Based on everything said since this slide appeared, would advancing now (see advancing_now_will) feel natural to the audience?",
+    criteria: {
+      stay: "Stay only when a substantive point in what is currently shown remains unexplained or the presenter clearly signals that the current thought will continue.",
+      next_slide: "Advance when the point of what is currently shown has been communicated and the latest utterance reaches a natural stopping point. No explicit transition phrase or sign-off is required.",
     },
-  ),
-  slide_complete: noul(
-    "Has the transcript communicated the current slide's core idea well enough to move on? Treat speaker notes as intent and context, not as a literal checklist or script.",
-    {
-      true: "The audience has enough context to understand the slide's main point, even if optional details were omitted and no explicit closing phrase was used.",
-      false: "A central idea visible on the slide remains unexplained, or the transcript is too thin to establish the slide's purpose.",
+  },
+  slide_complete: {
+    type: "noul",
+    instructions:
+      "Has the transcript communicated the core idea of what is currently shown well enough to advance? If the slide reveals content progressively (see reveal_progress), visible_content also includes parts not yet revealed: judge only the part revealed so far. Treat speaker notes as intent and context, not as a literal checklist or script.",
+    criteria: {
+      true: "The audience has enough context to understand the main point of what is currently shown, even if optional details were omitted and no explicit closing phrase was used.",
+      false: "A central idea in what is currently shown remains unexplained, or the transcript is too thin to establish its purpose.",
     },
-  ),
-  still_explaining: noul(
-    "Is there positive evidence that the presenter intends to continue the current thought on this slide?",
-    {
-      true: "The presenter starts an unfinished clause or promises another detail, qualification, example, or demo step on this slide.",
+  },
+  still_explaining: {
+    type: "noul",
+    instructions:
+      "Is there positive evidence that the presenter intends to continue the current thought before advancing?",
+    criteria: {
+      true: "The presenter starts an unfinished clause or promises another detail, qualification, example, or demo step about what is currently shown.",
       false: "The latest utterance completes its thought. Do not require an explicit sign-off to choose false.",
     },
-  ),
-  transitioning: noul(
-    "Has the presenter reached a natural slide boundary, whether or not they explicitly announce a transition?",
-    {
-      true: "The current thought is wrapped up, summarized, or naturally hands off to the next slide.",
+  },
+  transitioning: {
+    type: "noul",
+    instructions:
+      "Has the presenter reached a natural boundary to advance (see advancing_now_will), whether or not they explicitly announce a transition?",
+    criteria: {
+      true: "The current thought is wrapped up, summarized, or naturally hands off to what comes next.",
       false: "Advancing at this exact point would interrupt the current explanation.",
     },
-  ),
+  },
 } as const;
+
+// Workers AI types don't include Clef yet; this is the subset we read.
+interface ClefResponse {
+  model: string;
+  answers: {
+    action: {
+      choice: string;
+      probabilities: Record<"stay" | "next_slide", number>;
+      confidence: number;
+    };
+    slide_complete: { noul: number };
+    still_explaining: { noul: number };
+    transitioning: { noul: number };
+  };
+}
 
 export async function evaluateNavigation(
   input: EvaluateInput,
@@ -55,35 +79,41 @@ export async function evaluateNavigation(
     .filter(Boolean)
     .slice(-12);
 
-  if (!env.TYPESAFE_API_KEY) {
-    return mockNavigation(input.slide, normalizedUtterances, startedAt);
-  }
-
-  const client = new TypeSafeClient({
-    apiKey: env.TYPESAFE_API_KEY,
-    defaultModel: "jev-latest",
-    timeout: 8_000,
-  });
-
-  const response = await client.systemOne({
-    state: {
-      current_slide: {
-        title: input.slide.title || "Untitled slide",
-        visible_content: input.slide.content || "No visible text",
-        speaker_notes: input.slide.notes || "No speaker notes provided",
+  const response = (await env.AI.run(
+    `@cf/cloudflare/${CLEF_MODEL}`,
+    {
+      model: CLEF_MODEL,
+      state: {
+        current_slide: {
+          title: input.slide.title || "Untitled slide",
+          visible_content: input.slide.content || "No visible text",
+          speaker_notes: input.slide.notes || "No speaker notes provided",
+          ...(input.slide.totalClicks > 0 && {
+            reveal_progress: {
+              clicks_revealed: input.slide.clicks,
+              total_clicks: input.slide.totalClicks,
+            },
+          }),
+        },
+        advancing_now_will:
+          input.slide.clicks < input.slide.totalClicks
+            ? "Reveal the next part of the current slide"
+            : "Move to the next slide",
+        next_slide: {
+          title: input.slide.nextSlideTitle || "No next slide title provided",
+        },
+        transcript_on_current_slide: normalizedUtterances,
+        latest_completed_utterance:
+          normalizedUtterances.at(-1) || "No completed utterance",
       },
-      next_slide: {
-        title: input.slide.nextSlideTitle || "No next slide title provided",
-      },
-      transcript_on_current_slide: normalizedUtterances,
-      latest_completed_utterance:
-        normalizedUtterances.at(-1) || "No completed utterance",
+      questions: QUESTIONS,
     },
-    questions: QUESTIONS,
-  });
+    { signal: AbortSignal.timeout(8_000) },
+  )) as unknown as ClefResponse;
 
-  const signals: JevSignals = {
-    recommendedAction: response.answers.action.choice,
+  const signals: DecisionSignals = {
+    recommendedAction:
+      response.answers.action.choice === "next_slide" ? "next_slide" : "stay",
     actionProbabilities: {
       stay: response.answers.action.probabilities.stay,
       next_slide: response.answers.action.probabilities.next_slide,
@@ -98,7 +128,6 @@ export async function evaluateNavigation(
     input.slide,
     normalizedUtterances.at(-1) || "",
     signals,
-    "jev",
     response.model,
     Date.now() - startedAt,
   );
@@ -107,8 +136,7 @@ export async function evaluateNavigation(
 export function makeDecision(
   slide: SlideContext,
   latestUtterance: string,
-  signals: JevSignals,
-  provider: "jev" | "mock",
+  signals: DecisionSignals,
   model: string,
   latencyMs: number,
 ): NavigationDecision {
@@ -128,6 +156,7 @@ export function makeDecision(
     type: "slidepilot:decision",
     id: crypto.randomUUID(),
     page: slide.page,
+    clicks: slide.clicks,
     action: shouldAdvance ? "next_slide" : "stay",
     shouldAdvance,
     reason: shouldAdvance
@@ -135,7 +164,6 @@ export function makeDecision(
       : explainFailedGate(failedGate),
     signals,
     latestUtterance,
-    provider,
     model,
     latencyMs,
   };
@@ -144,75 +172,10 @@ export function makeDecision(
 function explainFailedGate(gate?: string): string {
   const reasons: Record<string, string> = {
     automatic: "This slide is configured for manual navigation.",
-    probability: "Jev does not yet consider this a natural point to advance.",
-    confidence: "Jev is too uncertain about advancing at this boundary.",
+    probability: "Clef does not yet consider this a natural point to advance.",
+    confidence: "Clef is too uncertain about advancing at this boundary.",
     complete: "The slide's core idea does not appear complete yet.",
     notContinuing: "The presenter appears to be continuing the current thought.",
   };
   return reasons[gate || ""] || "Navigation remained on the current slide.";
-}
-
-function mockNavigation(
-  slide: SlideContext,
-  utterances: string[],
-  startedAt: number,
-): NavigationDecision {
-  const latest = utterances.at(-1) || "";
-  const text = latest.toLowerCase();
-  const all = utterances.join(" ").toLowerCase();
-
-  const holdPatterns = [
-    "before we move on",
-    "one more",
-    "but first",
-    "not done",
-    "another detail",
-    "keep in mind",
-  ];
-  const transitionPatterns = [
-    "that's it",
-    "that is it",
-    "that's all",
-    "that is all",
-    "moving on",
-    "move on",
-    "now let's",
-    "now we can",
-    "with that",
-    "next slide",
-    "next up",
-  ];
-
-  const holds = holdPatterns.some((pattern) => text.includes(pattern));
-  const transitions = transitionPatterns.some((pattern) => text.includes(pattern));
-  const hasEnoughContext = all.split(/\s+/).filter(Boolean).length >= 18;
-
-  const nextProbability = holds
-    ? 0.08
-    : transitions
-      ? 0.96
-      : hasEnoughContext
-        ? 0.42
-        : 0.12;
-
-  const signals: JevSignals = {
-    recommendedAction: nextProbability >= 0.5 ? "next_slide" : "stay",
-    actionProbabilities: {
-      stay: 1 - nextProbability,
-      next_slide: nextProbability,
-    },
-    actionConfidence: Math.abs(nextProbability - 0.5) * 2,
-    slideComplete: transitions ? 0.95 : hasEnoughContext ? 0.68 : 0.18,
-    stillExplaining: holds ? 0.96 : transitions ? 0.05 : 0.58,
-    transitioning: transitions ? 0.95 : holds ? 0.03 : 0.2,
-  };
-
-  return makeDecision(
-    slide,
-    latest,
-    signals,
-    "mock",
-    "deterministic-local-mock",
-    Date.now() - startedAt,
-  );
 }

@@ -15,7 +15,6 @@ import type {
 interface Env {
   AI: Ai;
   SlidePilot: DurableObjectNamespace;
-  TYPESAFE_API_KEY?: string;
 }
 
 const VoiceInputAgent = withVoiceInput(Agent, {
@@ -30,10 +29,10 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
   };
 
   transcriber = new WorkersAIFluxSTT(withWebSocketDiagnostics(this.env.AI), {
-    // Favor frequent utterances; the conservative Jev policy still owns navigation.
+    // Favor frequent utterances; the conservative navigation policy still decides.
     eotThreshold: 0.6,
     eotTimeoutMs: 1_200,
-    keyterms: ["Cloudflare", "Jev", "Slidev", "TypeSafe"],
+    keyterms: ["Cloudflare", "Clef", "Slidev", "Workers AI"],
   });
 
   afterTranscribe(transcript: string) {
@@ -42,10 +41,7 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
   }
 
   onCallStart(connection: Connection) {
-    this.send(connection, {
-      type: "slidepilot:ready",
-      provider: this.env.TYPESAFE_API_KEY ? "jev" : "mock",
-    });
+    this.send(connection, { type: "slidepilot:ready" });
   }
 
   async onTranscript(text: string, connection: Connection) {
@@ -73,16 +69,20 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
       );
       console.log("SlidePilot navigation decision", {
         page: decision.page,
+        clicks: decision.clicks,
         action: decision.action,
         shouldAdvance: decision.shouldAdvance,
         reason: decision.reason,
-        provider: decision.provider,
+        model: decision.model,
         latencyMs: decision.latencyMs,
         signals: decision.signals,
       });
 
-      // Ignore a decision if the presenter navigated while Jev was evaluating.
-      if (this.state.slide?.page !== slide.page) return;
+      // Ignore a decision if the presenter navigated while Clef was evaluating.
+      if (
+        this.state.slide?.page !== slide.page ||
+        this.state.slide?.clicks !== slide.clicks
+      ) return;
 
       this.setState({ ...this.state, utterances, lastDecision: decision });
       this.send(connection, decision);
@@ -91,7 +91,7 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
       this.send(connection, {
         type: "slidepilot:error",
         message:
-          error instanceof Error ? error.message : "Jev evaluation failed.",
+          error instanceof Error ? error.message : "Clef evaluation failed.",
       });
     }
   }
@@ -118,10 +118,6 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
         slide: context,
         utterances: changedSlide ? [] : this.state.utterances,
         lastDecision: changedSlide ? null : this.state.lastDecision,
-      });
-      this.send(connection, {
-        type: "slidepilot:context-accepted",
-        page: context.page,
       });
     }
   }
@@ -182,6 +178,8 @@ function normalizeSlideContext(value: SlideContext): SlideContext {
     content: String(value?.content || "").slice(0, 20_000),
     notes: String(value?.notes || "").slice(0, 20_000),
     nextSlideTitle: String(value?.nextSlideTitle || "").slice(0, 500),
+    clicks: Math.max(0, Math.floor(Number(value?.clicks) || 0)),
+    totalClicks: Math.max(0, Math.floor(Number(value?.totalClicks) || 0)),
     manual: Boolean(value?.manual),
     thresholds: {
       advance: clamp(thresholds.advance, 0.68),
@@ -223,11 +221,7 @@ export default {
     }
 
     if (url.pathname === "/health") {
-      return json({
-        ok: true,
-        service: "slidepilot",
-        decisionProvider: env.TYPESAFE_API_KEY ? "jev" : "mock",
-      });
+      return json({ ok: true, service: "slidepilot" });
     }
 
     if (url.pathname === "/api/evaluate" && request.method === "POST") {

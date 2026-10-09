@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { evaluateNavigation, makeDecision } from "./decision";
-import type { JevSignals, SlideContext } from "./types";
+import type { DecisionSignals, SlideContext } from "./types";
 
 const slide: SlideContext = {
   page: "2",
   title: "The three-part pipeline",
-  content: "Voice hears. Jev decides. Slidev acts.",
+  content: "Voice hears. Clef decides. Slidev acts.",
   notes: "Explain each part and conclude the loop.",
   nextSlideTitle: "Architecture",
+  clicks: 0,
+  totalClicks: 0,
   manual: false,
   thresholds: {
     advance: 0.68,
@@ -19,7 +21,7 @@ const slide: SlideContext = {
 
 describe("SlidePilot navigation policy", () => {
   it("advances when every safety gate passes", () => {
-    const signals: JevSignals = {
+    const signals: DecisionSignals = {
       recommendedAction: "next_slide",
       actionProbabilities: { stay: 0.04, next_slide: 0.96 },
       actionConfidence: 0.9,
@@ -29,13 +31,13 @@ describe("SlidePilot navigation policy", () => {
     };
 
     expect(
-      makeDecision(slide, "With that, let's look at the architecture.", signals, "mock", "test", 1)
+      makeDecision(slide, "With that, let's look at the architecture.", signals, "test", 1)
         .shouldAdvance,
     ).toBe(true);
   });
 
   it("advances after semantic completion without explicit transition language", () => {
-    const signals: JevSignals = {
+    const signals: DecisionSignals = {
       recommendedAction: "next_slide",
       actionProbabilities: { stay: 0.26, next_slide: 0.74 },
       actionConfidence: 0.48,
@@ -48,7 +50,6 @@ describe("SlidePilot navigation policy", () => {
       slide,
       "The code keeps control of navigation while the model supplies judgment.",
       signals,
-      "mock",
       "test",
       1,
     );
@@ -56,7 +57,7 @@ describe("SlidePilot navigation policy", () => {
   });
 
   it("stays when the presenter signals unfinished business", () => {
-    const signals: JevSignals = {
+    const signals: DecisionSignals = {
       recommendedAction: "next_slide",
       actionProbabilities: { stay: 0.08, next_slide: 0.92 },
       actionConfidence: 0.8,
@@ -69,7 +70,6 @@ describe("SlidePilot navigation policy", () => {
       slide,
       "Before we move on, there is one more detail.",
       signals,
-      "mock",
       "test",
       1,
     );
@@ -78,7 +78,7 @@ describe("SlidePilot navigation policy", () => {
   });
 
   it("stays when transition language is strong but the slide is incomplete", () => {
-    const signals: JevSignals = {
+    const signals: DecisionSignals = {
       recommendedAction: "next_slide",
       actionProbabilities: { stay: 0.22, next_slide: 0.78 },
       actionConfidence: 0.56,
@@ -91,7 +91,6 @@ describe("SlidePilot navigation policy", () => {
       slide,
       "Next, we will discuss the architecture.",
       signals,
-      "mock",
       "test",
       1,
     );
@@ -100,7 +99,7 @@ describe("SlidePilot navigation policy", () => {
   });
 
   it("never advances a manual slide", () => {
-    const signals: JevSignals = {
+    const signals: DecisionSignals = {
       recommendedAction: "next_slide",
       actionProbabilities: { stay: 0.01, next_slide: 0.99 },
       actionConfidence: 0.98,
@@ -114,27 +113,78 @@ describe("SlidePilot navigation policy", () => {
         { ...slide, manual: true },
         "Moving on.",
         signals,
-        "mock",
         "test",
         1,
       ).shouldAdvance,
     ).toBe(false);
   });
+});
 
-  it("provides a deterministic no-key mock for local development", async () => {
-    const result = await evaluateNavigation(
-      {
-        slide,
-        utterances: [
-          "The microphone creates the transcript.",
-          "Jev makes the bounded decision and Slidev performs the action.",
-          "That is the entire loop. With that, let's move on.",
-        ],
+describe("Clef evaluation", () => {
+  async function evaluateWithFakeClef(slideContext: SlideContext) {
+    const calls: { model: string; inputs: any; options: any }[] = [];
+    const AI = {
+      run: async (model: string, inputs: unknown, options: unknown) => {
+        calls.push({ model, inputs, options });
+        return {
+          model: "clef-flash",
+          answers: {
+            action: {
+              type: "choice",
+              choice: "next_slide",
+              probabilities: { stay: 0.1, next_slide: 0.9 },
+              confidence: 0.8,
+            },
+            slide_complete: { type: "noul", noul: 0.9 },
+            still_explaining: { type: "noul", noul: 0.1 },
+            transitioning: { type: "noul", noul: 0.85 },
+          },
+        };
       },
-      {},
-    );
+    } as unknown as Ai;
 
-    expect(result.provider).toBe("mock");
+    const result = await evaluateNavigation(
+      { slide: slideContext, utterances: ["That is the entire loop."] },
+      { AI },
+    );
+    return { calls, result };
+  }
+
+  it("calls clef-flash on Workers AI and maps the answers", async () => {
+    const { calls, result } = await evaluateWithFakeClef(slide);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].model).toBe("@cf/cloudflare/clef-flash");
+    expect(calls[0].inputs.model).toBe("clef-flash");
+    expect(calls[0].inputs.state.current_slide.title).toBe(slide.title);
+    expect(calls[0].inputs.state.current_slide.reveal_progress).toBeUndefined();
+    expect(calls[0].inputs.state.advancing_now_will).toBe("Move to the next slide");
+    expect(Object.keys(calls[0].inputs.questions)).toEqual([
+      "action",
+      "slide_complete",
+      "still_explaining",
+      "transitioning",
+    ]);
+    expect(calls[0].options.signal).toBeInstanceOf(AbortSignal);
+
+    expect(result.model).toBe("clef-flash");
+    expect(result.clicks).toBe(0);
+    expect(result.signals.actionProbabilities.next_slide).toBe(0.9);
     expect(result.shouldAdvance).toBe(true);
+  });
+
+  it("tells Clef about click progress on progressively revealed slides", async () => {
+    const midway = await evaluateWithFakeClef({ ...slide, clicks: 1, totalClicks: 3 });
+    expect(midway.calls[0].inputs.state.current_slide.reveal_progress).toEqual({
+      clicks_revealed: 1,
+      total_clicks: 3,
+    });
+    expect(midway.calls[0].inputs.state.advancing_now_will).toBe(
+      "Reveal the next part of the current slide",
+    );
+    expect(midway.result.clicks).toBe(1);
+
+    const lastClick = await evaluateWithFakeClef({ ...slide, clicks: 3, totalClicks: 3 });
+    expect(lastClick.calls[0].inputs.state.advancing_now_will).toBe("Move to the next slide");
   });
 });

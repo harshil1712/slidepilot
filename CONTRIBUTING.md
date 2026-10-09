@@ -8,14 +8,12 @@ Requirements:
 
 - Node.js 20 or newer
 - pnpm
-- A Cloudflare account with Workers AI access for live STT testing
-- An optional TypeSafe API key for live Jev testing
+- A Cloudflare account with Workers AI access for live STT and Clef testing
 
 ```bash
 git clone https://github.com/harshil1712/slidepilot.git
 cd slidepilot
 pnpm install
-cp apps/worker/.dev.vars.example apps/worker/.dev.vars
 ```
 
 Run the Worker and demo deck in separate terminals:

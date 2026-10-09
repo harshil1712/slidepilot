@@ -10,6 +10,6 @@ Please do not open a public issue for a suspected vulnerability. Use [GitHub pri
 
 ## Deployment warning
 
-SlidePilot does not currently provide application-level authentication. A deployed Worker exposes usage-billed Workers AI and, when configured, Jev-backed functionality. Deployers are responsible for protecting the endpoint with Cloudflare Access or another authentication mechanism suitable for their environment.
+SlidePilot does not currently provide application-level authentication. A deployed Worker exposes usage-billed Workers AI functionality, including speech-to-text and Clef decision evaluation. Deployers are responsible for protecting the endpoint with Cloudflare Access or another authentication mechanism suitable for their environment.
 
-Never put `TYPESAFE_API_KEY` or another server credential in Slidev headmatter or client-side code. Store secrets with Wrangler or in a local ignored environment file.
+Never put Cloudflare API tokens or another server credential in Slidev headmatter or client-side code. Store secrets with Wrangler or in a local ignored environment file.

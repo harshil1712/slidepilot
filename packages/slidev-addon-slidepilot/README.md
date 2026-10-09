@@ -1,6 +1,6 @@
 # slidev-addon-slidepilot
 
-Voice-driven semantic auto-advance for [Slidev](https://sli.dev/), powered by Cloudflare Agents and TypeSafe AI's Jev.
+Voice-driven semantic auto-advance for [Slidev](https://sli.dev/), powered by Cloudflare Agents and Workers AI Clef.
 
 > Experimental: this addon requires a separately deployed SlidePilot Worker. Keep manual navigation available during presentations.
 
@@ -45,9 +45,9 @@ slidePilot:
 
 ## Controls
 
-The microphone control and shortcuts are available only in Slidev presenter mode. Viewers cannot start the voice agent from play mode, even if they know the shortcuts. Presenter mode is not authentication: restrict access to the presenter route and Worker in non-demo deployments.
+A small status indicator in the lower-right shows `offline`, `mic off`, `listening`, `paused`, or `error` (hover for details). The indicator and shortcuts are available only in Slidev presenter mode. Viewers cannot start the voice agent from play mode, even if they know the shortcuts. Presenter mode is not authentication: restrict access to the presenter route and Worker in non-demo deployments.
 
-- **Shift+V** — start or stop the microphone
+- **Click the indicator** or press **Shift+V** — start or stop the microphone
 - **Shift+A** — arm or pause automatic navigation
 
 Keyboard and clicker navigation remain available at all times.

@@ -5,20 +5,20 @@
 
 > **Experimental:** SlidePilot is an early proof of concept built on experimental voice APIs. Rehearse with it before using it in a live presentation, and always keep manual navigation available.
 
-**Your voice is the clicker.** SlidePilot listens to a presenter, asks [TypeSafe AI's Jev](https://typesafe.ai/) whether the current slide is semantically complete, and advances a [Slidev](https://sli.dev/) deck only when deterministic safety checks pass.
+**Your voice is the clicker.** SlidePilot listens to a presenter, asks [Clef](https://developers.cloudflare.com/workers-ai/models/clef-flash/) on Workers AI whether the current slide is semantically complete, and advances a [Slidev](https://sli.dev/) deck only when deterministic safety checks pass.
 
 ```text
 Slidev addon → VoiceClient → Cloudflare Voice Input Agent → Workers AI Flux STT
-                                                        ↘ Jev → policy → Slidev navigation
+                                                        ↘ Workers AI Clef → policy → Slidev navigation
 ```
 
 ## How it works
 
 1. The Slidev addon streams microphone audio to a Cloudflare Agent over WebSockets.
 2. Workers AI Flux produces interim text and completed utterances.
-3. Jev evaluates four typed questions: whether advancing feels natural, whether the core idea is complete, whether the presenter is continuing, and whether this is a natural slide boundary.
+3. Clef evaluates four typed questions: whether advancing feels natural, whether the core idea is complete, whether the presenter is continuing, and whether this is a natural slide boundary.
 4. TypeScript—not the model—applies the navigation policy.
-5. The addon checks cooldown and stale-decision guards before calling `useNav().nextSlide()`.
+5. The addon checks cooldown and stale-decision guards before calling `useNav().next()`, which reveals the next click or, after the last click, moves to the next slide.
 
 Explicit phrases such as “next slide” are not required. Semantic completion is the primary signal, while positive evidence that the presenter is continuing remains a hard veto. If the presenter resumes speaking during the short navigation delay, the pending advance is cancelled.
 
@@ -59,7 +59,6 @@ The addon needs a SlidePilot Worker backend. Deploy your own using the instructi
 - Node.js 20 or newer
 - pnpm
 - A Cloudflare account with Workers AI access
-- Optional: a TypeSafe API key for real Jev inference. Without one, the Worker transparently uses a deterministic mock policy.
 
 Clone and install the repository:
 
@@ -81,10 +80,9 @@ Deploy the Worker:
 
 ```bash
 pnpm deploy
-
-# Optional: omit this to use deterministic mock decisions.
-pnpm wrangler secret put TYPESAFE_API_KEY
 ```
+
+Clef (`@cf/cloudflare/clef-flash`) runs through the Worker's existing Workers AI binding, so no extra API key is needed.
 
 Copy the `*.workers.dev` hostname printed by Wrangler into your deck's `slidePilot.host` setting. Do not include a path; both hostname-only and `https://` forms are accepted.
 
@@ -97,15 +95,13 @@ curl https://slidepilot.<your-subdomain>.workers.dev/health
 A successful response resembles:
 
 ```json
-{"ok":true,"service":"slidepilot","decisionProvider":"jev"}
+{"ok":true,"service":"slidepilot"}
 ```
 
 ## Run the included demo locally
 
 ```bash
 pnpm install
-cp apps/worker/.dev.vars.example apps/worker/.dev.vars
-# Uncomment TYPESAFE_API_KEY in apps/worker/.dev.vars for real Jev inference.
 
 # Terminal 1
 pnpm dev:worker
@@ -114,9 +110,9 @@ pnpm dev:worker
 pnpm dev:slides
 ```
 
-Open the URL printed by Slidev, enter **Presenter Mode**, expand the SlidePilot control, click **Start mic**, and grant microphone permission. The control is never mounted in viewer/play mode. The cover and final slides are intentionally manual; leave the cover with the keyboard before testing automatic navigation.
+Open the URL printed by Slidev, enter **Presenter Mode**, click the **MIC OFF** indicator in the lower-right (or press **Shift+V**), and grant microphone permission. The indicator is never mounted in viewer/play mode. The cover and final slides are intentionally manual; leave the cover with the keyboard before testing automatic navigation.
 
-Flux streaming STT works with a local Durable Object and Wrangler's remote Workers AI binding. Nova-3 did not return its WebSocket in the same local setup during development, so the project currently uses Flux.
+Flux streaming STT and Clef both work with a local Durable Object and Wrangler's remote Workers AI binding. Nova-3 did not return its WebSocket in the same local setup during development, so the project currently uses Flux.
 
 ## Configuration
 
@@ -132,22 +128,20 @@ slidePilot:
   confidence: 0.30
   cooldownMs: 2000
   advanceDelayMs: 1000
-  showTranscript: true
 ```
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `enabled` | `true` | Mount the SlidePilot control in presenter mode. |
+| `enabled` | `true` | Mount the SlidePilot indicator in presenter mode. |
 | `host` | Current page host | Worker hostname used by `VoiceClient`. |
 | `agent` | `SlidePilot` | Exported Cloudflare Agent class name. |
 | `session` | Deck title | Durable Agent instance name for this talk. |
-| `advanceThreshold` | `0.68` | Minimum Jev probability that advancing is natural. |
+| `advanceThreshold` | `0.68` | Minimum Clef probability that advancing is natural. |
 | `completeThreshold` | `0.65` | Minimum probability that the slide's core idea is complete. |
 | `stillExplainingCeiling` | `0.55` | Maximum probability that the presenter is continuing. |
-| `confidence` | `0.30` | Minimum confidence in Jev's action choice. |
+| `confidence` | `0.30` | Minimum confidence in Clef's action choice. |
 | `cooldownMs` | `2000` | Minimum interval between automatic advances. |
 | `advanceDelayMs` | `1000` | Cancellable delay before navigation. |
-| `showTranscript` | `true` | Show interim/final transcript text in the control. |
 
 Disable automatic navigation for an individual slide:
 
@@ -160,8 +154,10 @@ slidePilot:
 
 Controls:
 
-- **Shift+V** — start or stop the microphone
+- **Click the indicator** or press **Shift+V** — start or stop the microphone
 - **Shift+A** — arm or pause automatic navigation
+
+The indicator shows one of `offline`, `mic off`, `listening`, `paused`, or `error`. Hover over it to see the error message. To inspect Clef's signals for each decision, use `pnpm wrangler tail` or the evaluation endpoint below.
 
 ## Test decisions without a microphone
 
@@ -176,7 +172,7 @@ curl http://localhost:8787/api/evaluate \
       "title": "Voice hears",
       "content": "The voice layer produces completed utterances.",
       "notes": "Explain streaming STT, then conclude.",
-      "nextSlideTitle": "Jev decides",
+      "nextSlideTitle": "Clef decides",
       "manual": false,
       "thresholds": {
         "advance": 0.68,
@@ -192,24 +188,18 @@ curl http://localhost:8787/api/evaluate \
   }'
 ```
 
-Check whether the Worker is using Jev or the mock provider:
-
-```bash
-curl http://localhost:8787/health
-```
-
 ## Authentication, privacy, and cost
 
-SlidePilot mounts the microphone control only in Slidev presenter mode; viewers cannot enable it from the viewer UI. **This is not an authorization boundary:** without separate access controls, anyone who can open the deck's presenter URL can enter presenter mode, and the Worker does not currently authenticate its WebSocket or evaluation endpoint. A publicly deployed Worker can be reached by other clients and may incur Workers AI and Jev usage. To ensure only the actual presenter can use the voice agent, restrict access to the presenter route **and** the Worker with an authentication layer (for example, Cloudflare Access) appropriate for your deployment. Do not put a shared secret in deck headmatter: it is delivered to viewers.
+SlidePilot mounts the microphone indicator only in Slidev presenter mode; viewers cannot enable it from the viewer UI. **This is not an authorization boundary:** without separate access controls, anyone who can open the deck's presenter URL can enter presenter mode, and the Worker does not currently authenticate its WebSocket or evaluation endpoint. A publicly deployed Worker can be reached by other clients and may incur Workers AI usage for both speech-to-text and Clef. To ensure only the actual presenter can use the voice agent, restrict access to the presenter route **and** the Worker with an authentication layer (for example, Cloudflare Access) appropriate for your deployment. Do not put a shared secret in deck headmatter: it is delivered to viewers.
 
 If `curl` returns `403` with `error code: 1050`, the Cloudflare account's Access default-deny policy is blocking the hostname before requests reach the Worker. For a protected deployment, create a self-hosted Access application with an Allow policy for the presenter; unauthenticated `curl` requests will still be blocked. An exemption or Bypass policy is suitable only for an intentionally public demo.
 
-Audio is processed by Workers AI using Deepgram Flux. When a TypeSafe API key is configured, completed transcripts plus the current slide's visible content and speaker notes are sent to Jev for evaluation. The TypeSafe key remains in the Worker and is never sent to the Slidev client.
+Audio is processed by Workers AI using Deepgram Flux. Completed transcripts plus the current slide's visible content and speaker notes are sent to Clef on Workers AI for evaluation. No model credentials are sent to the Slidev client.
 
 ## Repository layout
 
 ```text
-apps/worker                         Cloudflare Voice Input Agent + Jev policy
+apps/worker                         Cloudflare Voice Input Agent + Clef policy
 apps/demo                           Demonstration Slidev deck
 packages/slidev-addon-slidepilot    Reusable Slidev addon
 ```
@@ -222,15 +212,14 @@ pnpm test
 pnpm build
 ```
 
-Policy tests cover semantic completion without magic words, explicit continuation, incomplete slides, manual slides, and deterministic mock behavior.
+Policy tests cover semantic completion without magic words, explicit continuation, incomplete slides, manual slides, and the Clef request/response mapping.
 
 ## Current limitations
 
-- Navigation operates at slide level, not `v-click` animation level.
+- On slides with clicks, Clef knows how many clicks are revealed but still receives the whole slide's content and notes, so it has to infer which part is on screen.
 - Thresholds are starting values and should be calibrated with rehearsal transcripts.
 - Slide content and notes are sent as text; very large values are truncated server-side.
 - `agents/voice` is experimental and pinned to an exact version.
-- The mock validates interaction and policy, not Jev behavior.
 - Presenter-only UI is not authentication; protect the presenter route and Worker separately in non-demo deployments.
 
 ## Contributing

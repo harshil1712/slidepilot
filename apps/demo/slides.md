@@ -1,12 +1,12 @@
 ---
 theme: default
 layout: cover
-title: SlidePilot — Jev × Cloudflare × Slidev
+title: SlidePilot — Cloudflare Clef × Slidev
 addons:
   - slidev-addon-slidepilot
 slidePilot:
   enabled: true
-  host: slidepilot-test.h-demo.workers.dev
+  host: localhost:8787
   agent: SlidePilot
   session: slidepilot-poc
   advanceThreshold: 0.68
@@ -15,7 +15,6 @@ slidePilot:
   confidence: 0.3
   cooldownMs: 2000
   advanceDelayMs: 1000
-  showTranscript: true
   mode: manual
 fonts:
   sans: IBM Plex Sans
@@ -26,7 +25,7 @@ fonts:
 
 # Your voice is<br><span class="acid">the clicker.</span>
 
-<p class="lede">Cloudflare hears. Jev decides. Slidev moves.</p>
+<p class="lede">Cloudflare hears. Clef decides. Slidev moves.</p>
 
 <div class="instructions">
   <span>01</span> Open presenter mode
@@ -35,7 +34,7 @@ fonts:
 </div>
 
 <!--
-Open Slidev presenter mode, then start the SlidePilot microphone using the control in the lower-right. This cover is deliberately manual. Move to the next slide with the keyboard when you are ready.
+Open Slidev presenter mode, then start the SlidePilot microphone by clicking the indicator in the lower-right or pressing Shift+V. This cover is deliberately manual. Move to the next slide with the keyboard when you are ready.
 -->
 
 ---
@@ -57,16 +56,16 @@ Continuous speech-to-text turns the presenter’s microphone into completed utte
 </div>
 
 <!--
-The first job belongs to Cloudflare's Voice SDK. It streams microphone audio to a durable voice input agent and turns speech into completed utterances. Before we move on, there is one more detail. Interim words can appear in the interface, but only a final utterance is sent for a decision. With that, the voice layer is complete and we can look at Jev.
+The first job belongs to Cloudflare's Voice SDK. It streams microphone audio to a durable voice input agent and turns speech into completed utterances. Before we move on, there is one more detail. Interim words can appear in the interface, but only a final utterance is sent for a decision. With that, the voice layer is complete and we can look at Clef.
 -->
 
 ---
-title: Jev decides
+title: Clef decides
 ---
 
 <div class="chapter-no">02 / 03</div>
 
-# Jev<br><span class="outline">decides.</span>
+# Clef<br><span class="outline">decides.</span>
 
 <div class="decision-grid">
   <div><small>SLIDE COMPLETE</small><b>?</b></div>
@@ -77,7 +76,7 @@ title: Jev decides
 <p class="caption">One state. Four typed questions. One conservative code path.</p>
 
 <!--
-Jev receives the current slide, its notes, the next slide title, and the rolling transcript. It answers several narrow questions in parallel. Code then combines those probabilities using conservative safety thresholds. The model provides judgment, but ordinary code remains in control. That is the entire decision layer. Now let's look at how Slidev acts.
+Clef receives the current slide, its notes, the next slide title, and the rolling transcript. It answers several narrow questions in parallel. Code then combines those probabilities using conservative safety thresholds. The model provides judgment, but ordinary code remains in control. That is the entire decision layer. Now let's look at how Slidev acts.
 -->
 
 ---
@@ -96,7 +95,7 @@ const safeToAdvance =
   stillExplaining <= 0.55
 
 if (safeToAdvance)
-  await nav.nextSlide()
+  await nav.next()
 ```
 
 <!--
@@ -116,13 +115,13 @@ title: The complete loop
   <i>→</i>
   <div><b>VOICE AGENT</b><small>speech → text</small></div>
   <i>→</i>
-  <div><b>JEV</b><small>text → probabilities</small></div>
+  <div><b>CLEF</b><small>text → probabilities</small></div>
   <i>→</i>
   <div><b>SLIDEV</b><small>decision → action</small></div>
 </div>
 
 <!--
-The microphone captures audio. A Cloudflare voice input agent produces utterances. Jev evaluates whether the presenter has completed the current thought. The Slidev addon applies a conservative policy and advances. Each component has exactly one job. That's the whole proof of concept.
+The microphone captures audio. A Cloudflare voice input agent produces utterances. Clef evaluates whether the presenter has completed the current thought. The Slidev addon applies a conservative policy and advances. Each component has exactly one job. That's the whole proof of concept.
 -->
 
 ---
