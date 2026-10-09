@@ -15,3 +15,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Reusable `slidev-addon-slidepilot` presenter-only status indicator and shortcuts.
 - Six-slide demonstration deck.
 - Local and deployed Worker setup documentation.
+- Experimental `omni` engine (`slidePilot.engine: omni` or `SLIDEPILOT_ENGINE`): server-side pause detection plus Workers AI Clef-omni judging the presenter's audio directly, with speech-start cancellation of pending advances.

@@ -5,9 +5,17 @@ import {
   type WSMessage,
 } from "agents";
 import { withVoiceInput, WorkersAIFluxSTT } from "agents/voice";
+import { SAMPLE_RATE, SlideAudioBuffer } from "./audio";
 import { evaluateNavigation } from "./decision";
+import {
+  OMNI_MAX_AUDIO_SECONDS,
+  PauseTranscriber,
+  evaluateNavigationAudio,
+} from "./omni";
 import type {
   ClientMessage,
+  Engine,
+  NavigationDecision,
   PilotState,
   SlideContext,
 } from "./types";
@@ -15,6 +23,8 @@ import type {
 interface Env {
   AI: Ai;
   SlidePilot: DurableObjectNamespace;
+  /** Default engine when the deck does not set `slidePilot.engine`. */
+  SLIDEPILOT_ENGINE?: string;
 }
 
 const VoiceInputAgent = withVoiceInput(Agent, {
@@ -35,13 +45,49 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
     keyterms: ["Cloudflare", "Clef", "Slidev", "Workers AI"],
   });
 
+  // Omni engine: in-memory only. Audio is too large for synced agent state.
+  private slideAudio = new SlideAudioBuffer(OMNI_MAX_AUDIO_SECONDS * SAMPLE_RATE);
+  private omniEvaluation: AbortController | null = null;
+  private activeEngines = new Map<string, Engine>();
+
+  /**
+   * Chosen at call start. Returning null keeps the Flux `transcriber`; the omni
+   * engine swaps in a pause detector so Clef-omni can judge the raw audio.
+   */
+  createTranscriber(connection: Connection) {
+    const engine = this.resolveEngine();
+    this.activeEngines.set(connection.id, engine);
+    if (engine !== "omni") return null;
+
+    this.resetOmni();
+    return new PauseTranscriber({
+      onAudio: (pcm) => this.slideAudio.append(pcm),
+      onSpeechStart: () => {
+        // The presenter resumed: drop any in-flight judgement and tell the
+        // addon to cancel a pending advance.
+        this.abortOmniEvaluation();
+        this.send(connection, { type: "slidepilot:speech" });
+      },
+      onPause: (pause) => {
+        void this.evaluateAudio(connection, pause.speechMs);
+      },
+    });
+  }
+
   afterTranscribe(transcript: string) {
     const normalized = transcript.trim();
     return normalized.length >= 2 ? normalized : null;
   }
 
   onCallStart(connection: Connection) {
-    this.send(connection, { type: "slidepilot:ready" });
+    const engine = this.activeEngines.get(connection.id) ?? "flux";
+    console.log("SlidePilot call started", { connectionId: connection.id, engine });
+    this.send(connection, { type: "slidepilot:ready", engine });
+  }
+
+  onCallEnd(connection: Connection) {
+    this.activeEngines.delete(connection.id);
+    this.resetOmni();
   }
 
   async onTranscript(text: string, connection: Connection) {
@@ -96,6 +142,86 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
     }
   }
 
+  private async evaluateAudio(connection: Connection, speechMs: number) {
+    const slide = this.state.slide;
+    if (!slide) {
+      this.send(connection, {
+        type: "slidepilot:error",
+        message: "No slide context received yet.",
+      });
+      return;
+    }
+
+    const pcm = this.slideAudio.toPcm();
+    if (pcm.length === 0) return;
+
+    this.abortOmniEvaluation();
+    const controller = new AbortController();
+    this.omniEvaluation = controller;
+
+    try {
+      const decision = await evaluateNavigationAudio(
+        {
+          slide,
+          pcm,
+          truncated: this.slideAudio.truncated,
+          sampleRate: SAMPLE_RATE,
+        },
+        this.env,
+        controller.signal,
+      );
+      // Speech resumed (or the call ended) while Clef-omni was listening.
+      if (controller.signal.aborted) return;
+      this.logDecision(decision, { engine: "omni", speechMs });
+
+      if (
+        this.state.slide?.page !== slide.page ||
+        this.state.slide?.clicks !== slide.clicks
+      ) return;
+
+      this.setState({ ...this.state, lastDecision: decision });
+      this.send(connection, decision);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      console.error("SlidePilot omni evaluation failed", error);
+      this.send(connection, {
+        type: "slidepilot:error",
+        message:
+          error instanceof Error ? error.message : "Clef-omni evaluation failed.",
+      });
+    } finally {
+      if (this.omniEvaluation === controller) this.omniEvaluation = null;
+    }
+  }
+
+  private logDecision(decision: NavigationDecision, extra: Record<string, unknown>) {
+    console.log("SlidePilot navigation decision", {
+      ...extra,
+      page: decision.page,
+      clicks: decision.clicks,
+      action: decision.action,
+      shouldAdvance: decision.shouldAdvance,
+      reason: decision.reason,
+      model: decision.model,
+      latencyMs: decision.latencyMs,
+      signals: decision.signals,
+    });
+  }
+
+  private resolveEngine(): Engine {
+    return this.state.engine ?? normalizeEngine(this.env.SLIDEPILOT_ENGINE) ?? "flux";
+  }
+
+  private abortOmniEvaluation() {
+    this.omniEvaluation?.abort();
+    this.omniEvaluation = null;
+  }
+
+  private resetOmni() {
+    this.abortOmniEvaluation();
+    this.slideAudio.clear();
+  }
+
   onMessage(connection: Connection, message: WSMessage) {
     if (typeof message !== "string") return;
 
@@ -107,6 +233,7 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
     }
 
     if (parsed.type === "slidepilot:reset") {
+      this.resetOmni();
       this.setState({ ...this.state, utterances: [], lastDecision: null });
       return;
     }
@@ -114,10 +241,13 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
     if (parsed.type === "slidepilot:context") {
       const context = normalizeSlideContext(parsed.context);
       const changedSlide = this.state.slide?.page !== context.page;
+      // Like the transcript, slide audio spans clicks but resets per slide.
+      if (changedSlide) this.resetOmni();
       this.setState({
         slide: context,
         utterances: changedSlide ? [] : this.state.utterances,
         lastDecision: changedSlide ? null : this.state.lastDecision,
+        engine: normalizeEngine(parsed.engine),
       });
     }
   }
@@ -191,6 +321,10 @@ function normalizeSlideContext(value: SlideContext): SlideContext {
       ),
     },
   };
+}
+
+function normalizeEngine(value: unknown): Engine | undefined {
+  return value === "flux" || value === "omni" ? value : undefined;
 }
 
 function clamp(value: unknown, fallback: number) {

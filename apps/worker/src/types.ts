@@ -42,12 +42,20 @@ export interface NavigationDecision {
   latencyMs: number;
 }
 
+/**
+ * "flux": Flux STT end-of-turn → Clef-flash on the transcript (default).
+ * "omni": experimental pause detection → Clef-omni on the presenter's audio.
+ */
+export type Engine = "flux" | "omni";
+
 export interface PilotState {
   slide: SlideContext | null;
   utterances: string[];
   lastDecision: NavigationDecision | null;
+  /** Engine requested by the deck; absent means the Worker default. */
+  engine?: Engine;
 }
 
 export type ClientMessage =
-  | { type: "slidepilot:context"; context: SlideContext }
+  | { type: "slidepilot:context"; context: SlideContext; engine?: string }
   | { type: "slidepilot:reset" };

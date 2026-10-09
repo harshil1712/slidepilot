@@ -14,6 +14,8 @@ interface SlidePilotConfig {
   stillExplainingCeiling?: number;
   cooldownMs?: number;
   advanceDelayMs?: number;
+  /** "flux" (default) or experimental "omni". Takes effect when the mic starts. */
+  engine?: "flux" | "omni";
 }
 
 // Subset of the Worker's NavigationDecision that the addon acts on.
@@ -27,7 +29,8 @@ interface NavigationDecision {
 
 type ServerMessage =
   | NavigationDecision
-  | { type: "slidepilot:ready" }
+  | { type: "slidepilot:ready"; engine?: string }
+  | { type: "slidepilot:speech" }
   | { type: "slidepilot:error"; message: string };
 
 const nav = useNav();
@@ -98,10 +101,7 @@ function initializeClient() {
   });
   client.addEventListener("interimtranscript", (value) => {
     // A resumed explanation cancels a decision that has not navigated yet.
-    if (value && advanceTimer) {
-      clearTimeout(advanceTimer);
-      advanceTimer = null;
-    }
+    if (value) cancelPendingAdvance();
   });
   client.addEventListener("error", (value) => {
     error.value = value || "";
@@ -149,7 +149,13 @@ function handleServerMessage(value: unknown) {
   const message = value as ServerMessage;
 
   if (message.type === "slidepilot:ready") {
+    console.info(`[SlidePilot] listening with the ${message.engine ?? "flux"} engine`);
     sendSlideContext();
+    return;
+  }
+  if (message.type === "slidepilot:speech") {
+    // Omni engine has no interim transcript; the pause detector reports speech.
+    cancelPendingAdvance();
     return;
   }
   if (message.type === "slidepilot:error") {
@@ -161,6 +167,12 @@ function handleServerMessage(value: unknown) {
     latestDecisionId = message.id;
     maybeAdvance(message);
   }
+}
+
+function cancelPendingAdvance() {
+  if (!advanceTimer) return;
+  clearTimeout(advanceTimer);
+  advanceTimer = null;
 }
 
 function maybeAdvance(result: NavigationDecision) {
@@ -198,6 +210,7 @@ function sendSlideContext() {
 
   client.sendJSON({
     type: "slidepilot:context",
+    engine: config.value.engine,
     context: {
       page: String(currentSlideNo.value),
       title: String(slide?.title || slide?.frontmatter?.title || `Slide ${currentSlideNo.value}`),

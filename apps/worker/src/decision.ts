@@ -55,7 +55,7 @@ const QUESTIONS = {
 } as const;
 
 // Workers AI types don't include Clef yet; this is the subset we read.
-interface ClefResponse {
+export interface ClefResponse {
   model: string;
   answers: {
     action: {
@@ -84,24 +84,7 @@ export async function evaluateNavigation(
     {
       model: CLEF_MODEL,
       state: {
-        current_slide: {
-          title: input.slide.title || "Untitled slide",
-          visible_content: input.slide.content || "No visible text",
-          speaker_notes: input.slide.notes || "No speaker notes provided",
-          ...(input.slide.totalClicks > 0 && {
-            reveal_progress: {
-              clicks_revealed: input.slide.clicks,
-              total_clicks: input.slide.totalClicks,
-            },
-          }),
-        },
-        advancing_now_will:
-          input.slide.clicks < input.slide.totalClicks
-            ? "Reveal the next part of the current slide"
-            : "Move to the next slide",
-        next_slide: {
-          title: input.slide.nextSlideTitle || "No next slide title provided",
-        },
+        ...buildSlideState(input.slide),
         transcript_on_current_slide: normalizedUtterances,
         latest_completed_utterance:
           normalizedUtterances.at(-1) || "No completed utterance",
@@ -111,7 +94,41 @@ export async function evaluateNavigation(
     { signal: AbortSignal.timeout(8_000) },
   )) as unknown as ClefResponse;
 
-  const signals: DecisionSignals = {
+  return makeDecision(
+    input.slide,
+    normalizedUtterances.at(-1) || "",
+    toSignals(response),
+    response.model,
+    Date.now() - startedAt,
+  );
+}
+
+/** Slide context shared by every Clef engine. */
+export function buildSlideState(slide: SlideContext) {
+  return {
+    current_slide: {
+      title: slide.title || "Untitled slide",
+      visible_content: slide.content || "No visible text",
+      speaker_notes: slide.notes || "No speaker notes provided",
+      ...(slide.totalClicks > 0 && {
+        reveal_progress: {
+          clicks_revealed: slide.clicks,
+          total_clicks: slide.totalClicks,
+        },
+      }),
+    },
+    advancing_now_will:
+      slide.clicks < slide.totalClicks
+        ? "Reveal the next part of the current slide"
+        : "Move to the next slide",
+    next_slide: {
+      title: slide.nextSlideTitle || "No next slide title provided",
+    },
+  };
+}
+
+export function toSignals(response: ClefResponse): DecisionSignals {
+  return {
     recommendedAction:
       response.answers.action.choice === "next_slide" ? "next_slide" : "stay",
     actionProbabilities: {
@@ -123,14 +140,6 @@ export async function evaluateNavigation(
     stillExplaining: response.answers.still_explaining.noul,
     transitioning: response.answers.transitioning.noul,
   };
-
-  return makeDecision(
-    input.slide,
-    normalizedUtterances.at(-1) || "",
-    signals,
-    response.model,
-    Date.now() - startedAt,
-  );
 }
 
 export function makeDecision(
