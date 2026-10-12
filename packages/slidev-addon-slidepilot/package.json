@@ -21,7 +21,7 @@
     "slidev": ">=53.0.0"
   },
   "dependencies": {
-    "agents": "0.23.0"
+    "agents": "0.27.0"
   },
   "peerDependencies": {
     "@slidev/client": ">=53.0.0",
