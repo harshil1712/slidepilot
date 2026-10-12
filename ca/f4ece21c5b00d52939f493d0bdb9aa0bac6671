@@ -1,0 +1,33 @@
+CHANGELOG.md
+  s_0e388aa105b35d::t_90655c7c8d1c44 11-14,20
+README.md
+  s_0e388aa105b35d::t_8cbddf4647a77a 8,11-12,18-19,23-25,87,117,147-149,151-154,156,160,163,165,214,218,241-244
+SECURITY.md
+  s_0e388aa105b35d::t_4df253f19ea12e 13
+apps/demo/slides.md
+  s_0e388aa105b35d::t_582f9f5eb94dd4 18,50,55,60,80,117,119,125
+apps/worker/src/index.ts
+  s_0e388aa105b35d::t_9431d8ea618a09 48-49,128
+apps/worker/src/omni.ts
+  s_0e388aa105b35d::t_d6cfe408e8790c 1
+apps/worker/src/types.ts
+  s_0e388aa105b35d::t_27871ab22aef53 46-47
+packages/slidev-addon-slidepilot/components/SlidePilot.vue
+  s_0e388aa105b35d::t_b6df065b9c8f4a 17,152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "caf4ece21c5b00d52939f493d0bdb9aa0bac6671",
+  "prompts": {},
+  "sessions": {
+    "s_0e388aa105b35d": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a121f7-f7e1-7601-b0f4-e9525d99631a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <18901032+harshil1712@users.noreply.github.com>"
+    }
+  }
+}
