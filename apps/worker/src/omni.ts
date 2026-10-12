@@ -11,6 +11,7 @@ import {
   encodeWav,
   pcmFromChunk,
   toBase64,
+  type AudioLevels,
   type PauseDetectorOptions,
   type PauseEvent,
 } from "./audio";
@@ -126,6 +127,12 @@ export interface PauseTranscriberHandlers {
   onAudio(pcm: Int16Array): void;
   onSpeechStart(event: Extract<PauseEvent, { type: "speech_start" }>): void;
   onPause(event: Extract<PauseEvent, { type: "pause" }>): void;
+  /** Called every `levelReportMs` of received audio, when provided. */
+  onLevels?(levels: AudioLevels): void;
+}
+
+export interface PauseTranscriberOptions extends PauseDetectorOptions {
+  levelReportMs?: number;
 }
 
 /**
@@ -136,11 +143,14 @@ export interface PauseTranscriberHandlers {
 export class PauseTranscriber implements Transcriber {
   constructor(
     private readonly handlers: PauseTranscriberHandlers,
-    private readonly options: PauseDetectorOptions = {},
+    private readonly options: PauseTranscriberOptions = {},
   ) {}
 
   createSession(_options?: TranscriberSessionOptions): TranscriberSession {
-    const detector = new PauseDetector(this.options);
+    const { levelReportMs = 5_000, ...detectorOptions } = this.options;
+    const detector = new PauseDetector(detectorOptions);
+    const reportSamples = (detector.options.sampleRate * levelReportMs) / 1_000;
+    let samplesSinceReport = 0;
     let closed = false;
     return {
       feed: (chunk: ArrayBuffer) => {
@@ -150,6 +160,11 @@ export class PauseTranscriber implements Transcriber {
         for (const event of detector.push(pcm)) {
           if (event.type === "speech_start") this.handlers.onSpeechStart(event);
           else this.handlers.onPause(event);
+        }
+        samplesSinceReport += pcm.length;
+        if (this.handlers.onLevels && samplesSinceReport >= reportSamples) {
+          samplesSinceReport = 0;
+          this.handlers.onLevels(detector.takeLevels());
         }
       },
       close: () => {

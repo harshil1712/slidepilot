@@ -24,6 +24,16 @@ export type PauseEvent =
   | { type: "speech_start"; atMs: number }
   | { type: "pause"; atMs: number; speechMs: number };
 
+/** Input levels since the last `takeLevels()`, for threshold tuning. */
+export interface AudioLevels {
+  ms: number;
+  meanRms: number;
+  peakRms: number;
+  /** Share of frames at or above the speech threshold. */
+  loudShare: number;
+  speaking: boolean;
+}
+
 const DEFAULTS: Required<PauseDetectorOptions> = {
   sampleRate: SAMPLE_RATE,
   frameMs: 20,
@@ -48,6 +58,10 @@ export class PauseDetector {
   private loudRunMs = 0;
   private quietRunMs = 0;
   private voicedMs = 0;
+  private levelFrames = 0;
+  private levelSum = 0;
+  private levelPeak = 0;
+  private levelLoud = 0;
 
   constructor(options: PauseDetectorOptions = {}) {
     this.options = { ...DEFAULTS, ...options };
@@ -73,6 +87,22 @@ export class PauseDetector {
     return events;
   }
 
+  takeLevels(): AudioLevels {
+    const frames = Math.max(1, this.levelFrames);
+    const levels = {
+      ms: this.levelFrames * this.options.frameMs,
+      meanRms: round(this.levelSum / frames),
+      peakRms: round(this.levelPeak),
+      loudShare: round(this.levelLoud / frames),
+      speaking: this.speaking,
+    };
+    this.levelFrames = 0;
+    this.levelSum = 0;
+    this.levelPeak = 0;
+    this.levelLoud = 0;
+    return levels;
+  }
+
   reset() {
     this.pending = new Int16Array(0);
     this.speaking = false;
@@ -85,6 +115,10 @@ export class PauseDetector {
     const { frameMs, speechThreshold, silenceThreshold, speechStartMs, pauseMs, minSpeechMs } =
       this.options;
     this.elapsedMs += frameMs;
+    this.levelFrames++;
+    this.levelSum += level;
+    this.levelPeak = Math.max(this.levelPeak, level);
+    if (level >= speechThreshold) this.levelLoud++;
 
     if (!this.speaking) {
       this.loudRunMs = level >= speechThreshold ? this.loudRunMs + frameMs : 0;
@@ -195,6 +229,10 @@ export function toBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + step));
   }
   return btoa(binary);
+}
+
+function round(value: number) {
+  return Math.round(value * 10_000) / 10_000;
 }
 
 function rms(samples: Int16Array, offset: number, length: number) {

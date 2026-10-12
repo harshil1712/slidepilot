@@ -25,6 +25,8 @@ interface Env {
   SlidePilot: DurableObjectNamespace;
   /** Default engine when the deck does not set `slidePilot.engine`. */
   SLIDEPILOT_ENGINE?: string;
+  /** "1" logs omni input levels every 5 s for pause-detector tuning. */
+  SLIDEPILOT_DEBUG_AUDIO?: string;
 }
 
 const VoiceInputAgent = withVoiceInput(Agent, {
@@ -60,17 +62,36 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
     if (engine !== "omni") return null;
 
     this.resetOmni();
+    let receivedAudio = false;
     return new PauseTranscriber({
-      onAudio: (pcm) => this.slideAudio.append(pcm),
-      onSpeechStart: () => {
+      onAudio: (pcm) => {
+        if (!receivedAudio) {
+          receivedAudio = true;
+          console.log("SlidePilot omni receiving audio", { samples: pcm.length });
+        }
+        this.slideAudio.append(pcm);
+      },
+      onSpeechStart: (event) => {
         // The presenter resumed: drop any in-flight judgement and tell the
         // addon to cancel a pending advance.
-        this.abortOmniEvaluation();
+        const aborted = this.abortOmniEvaluation();
+        console.log("SlidePilot omni speech started", {
+          atMs: event.atMs,
+          ...(aborted && { abortedEvaluation: true }),
+        });
         this.send(connection, { type: "slidepilot:speech" });
       },
       onPause: (pause) => {
+        console.log("SlidePilot omni pause", {
+          atMs: pause.atMs,
+          speechMs: pause.speechMs,
+          slideAudioSeconds: this.slideAudio.samples / SAMPLE_RATE,
+        });
         void this.evaluateAudio(connection, pause.speechMs);
       },
+      ...(this.env.SLIDEPILOT_DEBUG_AUDIO === "1" && {
+        onLevels: (levels) => console.log("SlidePilot omni levels", levels),
+      }),
     });
   }
 
@@ -145,6 +166,7 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
   private async evaluateAudio(connection: Connection, speechMs: number) {
     const slide = this.state.slide;
     if (!slide) {
+      console.warn("SlidePilot omni skipped: no slide context received yet");
       this.send(connection, {
         type: "slidepilot:error",
         message: "No slide context received yet.",
@@ -153,7 +175,10 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
     }
 
     const pcm = this.slideAudio.toPcm();
-    if (pcm.length === 0) return;
+    if (pcm.length === 0) {
+      console.warn("SlidePilot omni skipped: no audio buffered for this slide");
+      return;
+    }
 
     this.abortOmniEvaluation();
     const controller = new AbortController();
@@ -171,18 +196,30 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
         controller.signal,
       );
       // Speech resumed (or the call ended) while Clef-omni was listening.
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) {
+        console.log("SlidePilot omni decision dropped: speech resumed", {
+          latencyMs: decision.latencyMs,
+          shouldAdvance: decision.shouldAdvance,
+        });
+        return;
+      }
       this.logDecision(decision, { engine: "omni", speechMs });
 
       if (
         this.state.slide?.page !== slide.page ||
         this.state.slide?.clicks !== slide.clicks
-      ) return;
+      ) {
+        console.log("SlidePilot omni decision dropped: slide changed during evaluation");
+        return;
+      }
 
       this.setState({ ...this.state, lastDecision: decision });
       this.send(connection, decision);
     } catch (error) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) {
+        console.log("SlidePilot omni evaluation aborted: speech resumed");
+        return;
+      }
       console.error("SlidePilot omni evaluation failed", error);
       this.send(connection, {
         type: "slidepilot:error",
@@ -212,9 +249,12 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
     return this.state.engine ?? normalizeEngine(this.env.SLIDEPILOT_ENGINE) ?? "flux";
   }
 
+  /** Returns true when an in-flight evaluation was aborted. */
   private abortOmniEvaluation() {
-    this.omniEvaluation?.abort();
+    const controller = this.omniEvaluation;
     this.omniEvaluation = null;
+    controller?.abort();
+    return Boolean(controller);
   }
 
   private resetOmni() {

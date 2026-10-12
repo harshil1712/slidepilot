@@ -63,6 +63,19 @@ describe("PauseDetector", () => {
     expect(events[1]).toMatchObject({ speechMs: 1_300 });
   });
 
+  it("reports input levels for threshold tuning and resets them", () => {
+    const detector = new PauseDetector();
+    detector.push(join(tone(500, 0.2), silence(500)));
+    expect(detector.takeLevels()).toEqual({
+      ms: 1_000,
+      meanRms: 0.1,
+      peakRms: 0.2,
+      loudShare: 0.5,
+      speaking: true,
+    });
+    expect(detector.takeLevels()).toMatchObject({ ms: 0, peakRms: 0 });
+  });
+
   it("produces the same events regardless of chunk boundaries", () => {
     const signal = join(silence(130), tone(900, 0.2), silence(750), tone(400, 0.2), silence(900));
     const whole = new PauseDetector().push(signal);

@@ -98,6 +98,16 @@ describe("Clef-omni evaluation", () => {
 });
 
 describe("PauseTranscriber", () => {
+  it("reports levels every levelReportMs of audio", () => {
+    const levels: number[] = [];
+    const session = new PauseTranscriber(
+      { onAudio: () => {}, onSpeechStart: () => {}, onPause: () => {}, onLevels: (l) => levels.push(l.ms) },
+      { levelReportMs: 1_000 },
+    ).createSession();
+    for (let i = 0; i < 25; i++) session.feed(new Int16Array(1_600).buffer); // 2.5 s in 100 ms chunks
+    expect(levels).toEqual([1_000, 1_000]);
+  });
+
   it("forwards audio and speech/pause events, and stops after close", () => {
     const received: string[] = [];
     let samples = 0;

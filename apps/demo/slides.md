@@ -15,7 +15,7 @@ slidePilot:
   confidence: 0.3
   cooldownMs: 2000
   advanceDelayMs: 1000
-  # engine: omni  # experimental: pause detection + Clef-omni on raw audio
+  engine: omni  # experimental: pause detection + Clef-omni on raw audio
   mode: manual
 fonts:
   sans: IBM Plex Sans
