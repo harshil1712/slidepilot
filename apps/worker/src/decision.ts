@@ -142,6 +142,28 @@ export function toSignals(response: ClefResponse): DecisionSignals {
   };
 }
 
+/** True when the screen still shows the slide and click that were evaluated. */
+export function isSameView(evaluated: SlideContext, current: SlideContext | null) {
+  return current?.page === evaluated.page && current?.clicks === evaluated.clicks;
+}
+
+export function logDecision(
+  decision: NavigationDecision,
+  extra: Record<string, unknown> = {},
+) {
+  console.log("SlidePilot navigation decision", {
+    ...extra,
+    page: decision.page,
+    clicks: decision.clicks,
+    action: decision.action,
+    shouldAdvance: decision.shouldAdvance,
+    reason: decision.reason,
+    model: decision.model,
+    latencyMs: decision.latencyMs,
+    signals: decision.signals,
+  });
+}
+
 export function makeDecision(
   slide: SlideContext,
   latestUtterance: string,

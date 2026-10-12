@@ -1,22 +1,19 @@
 // Experimental engine: a pause detector replaces Flux STT, and Clef-omni hears
 // the presenter's audio directly instead of reading a transcript.
-import type {
-  Transcriber,
-  TranscriberSession,
-  TranscriberSessionOptions,
-} from "agents/voice";
+import type { Transcriber, TranscriberSession } from "agents/voice";
 import {
   PauseDetector,
   SAMPLE_RATE,
+  SlideAudioBuffer,
   encodeWav,
   pcmFromChunk,
   toBase64,
-  type AudioLevels,
   type PauseDetectorOptions,
-  type PauseEvent,
 } from "./audio";
 import {
   buildSlideState,
+  isSameView,
+  logDecision,
   makeDecision,
   toSignals,
   type ClefResponse,
@@ -31,7 +28,7 @@ const CLEF_OMNI_MODEL = "clef-omni";
  * (8 MiB), but latency grows with length: in a smoke test, 60 s took ~1 s
  * while 240 s took 3.5-7.5 s, too slow for navigation and near the timeout.
  */
-export const OMNI_MAX_AUDIO_SECONDS = 60;
+const OMNI_MAX_AUDIO_SECONDS = 60;
 
 // Same four questions and answer shapes as the Flux engine so the TypeScript
 // policy (makeDecision) and thresholds apply unchanged. Wording refers to what
@@ -77,11 +74,10 @@ const OMNI_QUESTIONS = {
 
 export interface EvaluateAudioInput {
   slide: SlideContext;
-  /** The presenter's audio on the current slide, oldest sample first. */
+  /** The presenter's 16 kHz audio on the current slide, oldest sample first. */
   pcm: Int16Array;
   /** True when older audio on this slide was dropped to fit the clip limit. */
   truncated?: boolean;
-  sampleRate?: number;
 }
 
 export async function evaluateNavigationAudio(
@@ -90,8 +86,7 @@ export async function evaluateNavigationAudio(
   signal?: AbortSignal,
 ): Promise<NavigationDecision> {
   const startedAt = Date.now();
-  const sampleRate = input.sampleRate ?? SAMPLE_RATE;
-  const seconds = Math.round((input.pcm.length / sampleRate) * 10) / 10;
+  const seconds = Math.round((input.pcm.length / SAMPLE_RATE) * 10) / 10;
   const timeout = AbortSignal.timeout(8_000);
 
   const response = (await env.AI.run(
@@ -108,7 +103,7 @@ export async function evaluateNavigationAudio(
             "Judge only the presenter. Ignore audience noise such as applause, laughter, or background conversation.",
         },
       },
-      audio: [{ content_type: "audio/wav", base64: toBase64(encodeWav(input.pcm, sampleRate)) }],
+      audio: [{ content_type: "audio/wav", base64: toBase64(encodeWav(input.pcm)) }],
       questions: OMNI_QUESTIONS,
     },
     { signal: signal ? AbortSignal.any([timeout, signal]) : timeout },
@@ -123,53 +118,130 @@ export async function evaluateNavigationAudio(
   );
 }
 
-export interface PauseTranscriberHandlers {
-  onAudio(pcm: Int16Array): void;
-  onSpeechStart(event: Extract<PauseEvent, { type: "speech_start" }>): void;
-  onPause(event: Extract<PauseEvent, { type: "pause" }>): void;
-  /** Called every `levelReportMs` of received audio, when provided. */
-  onLevels?(levels: AudioLevels): void;
+export interface OmniListenerHost {
+  env: DecisionEnv;
+  /** The slide currently on screen. */
+  getSlide(): SlideContext | null;
+  /** The presenter started speaking: cancel any pending advance. */
+  onSpeech(): void;
+  /** A decision for the slide that is still on screen. */
+  onDecision(decision: NavigationDecision): void;
+  onError(message: string): void;
+  /** Also log speech/pause events and input levels (SLIDEPILOT_DEBUG_AUDIO). */
+  debug?: boolean;
+  detector?: PauseDetectorOptions;
 }
 
-export interface PauseTranscriberOptions extends PauseDetectorOptions {
-  levelReportMs?: number;
-}
+const LEVEL_REPORT_SAMPLES = 5 * SAMPLE_RATE;
 
 /**
- * Plugs the pause detector into agents/voice in place of an STT provider.
- * withVoiceInput feeds every PCM chunk to the session; instead of emitting
- * transcripts, the session forwards audio and speech/pause events.
+ * The omni engine for one voice call. It keeps the current slide's audio,
+ * asks Clef-omni at each pause, and drops answers that arrive after the
+ * presenter resumed speaking or the slide changed.
  */
-export class PauseTranscriber implements Transcriber {
-  constructor(
-    private readonly handlers: PauseTranscriberHandlers,
-    private readonly options: PauseTranscriberOptions = {},
-  ) {}
+export class OmniListener {
+  private readonly audio = new SlideAudioBuffer(OMNI_MAX_AUDIO_SECONDS * SAMPLE_RATE);
+  private evaluation: AbortController | null = null;
 
-  createSession(_options?: TranscriberSessionOptions): TranscriberSession {
-    const { levelReportMs = 5_000, ...detectorOptions } = this.options;
-    const detector = new PauseDetector(detectorOptions);
-    const reportSamples = (detector.options.sampleRate * levelReportMs) / 1_000;
-    let samplesSinceReport = 0;
+  constructor(private readonly host: OmniListenerHost) {}
+
+  /** Takes the place of an STT provider in agents/voice. */
+  readonly transcriber: Transcriber = {
+    createSession: () => this.createSession(),
+  };
+
+  /** The slide changed: forget its audio and any judgement in flight. */
+  resetSlide() {
+    this.cancelEvaluation();
+    this.audio.clear();
+  }
+
+  private createSession(): TranscriberSession {
+    const detector = new PauseDetector(this.host.detector);
+    let samplesSinceLevels = 0;
+    let receivedAudio = false;
     let closed = false;
+
     return {
       feed: (chunk: ArrayBuffer) => {
         if (closed) return;
         const pcm = pcmFromChunk(chunk);
-        this.handlers.onAudio(pcm);
-        for (const event of detector.push(pcm)) {
-          if (event.type === "speech_start") this.handlers.onSpeechStart(event);
-          else this.handlers.onPause(event);
+        if (!receivedAudio) {
+          receivedAudio = true;
+          console.log("SlidePilot omni receiving audio");
         }
-        samplesSinceReport += pcm.length;
-        if (this.handlers.onLevels && samplesSinceReport >= reportSamples) {
-          samplesSinceReport = 0;
-          this.handlers.onLevels(detector.takeLevels());
+        this.audio.append(pcm);
+
+        for (const event of detector.push(pcm)) {
+          if (event.type === "speech_start") {
+            const cancelled = this.cancelEvaluation();
+            if (this.host.debug) console.log("SlidePilot omni speech", { ...event, cancelled });
+            this.host.onSpeech();
+          } else {
+            if (this.host.debug) console.log("SlidePilot omni pause", event);
+            void this.evaluate(event.speechMs);
+          }
+        }
+
+        samplesSinceLevels += pcm.length;
+        if (this.host.debug && samplesSinceLevels >= LEVEL_REPORT_SAMPLES) {
+          samplesSinceLevels = 0;
+          console.log("SlidePilot omni levels", detector.takeLevels());
         }
       },
       close: () => {
         closed = true;
+        this.resetSlide();
       },
     };
+  }
+
+  private async evaluate(speechMs: number) {
+    const slide = this.host.getSlide();
+    if (!slide) {
+      this.host.onError("No slide context received yet.");
+      return;
+    }
+    const pcm = this.audio.toPcm();
+    if (pcm.length === 0) return;
+
+    this.cancelEvaluation();
+    const controller = new AbortController();
+    this.evaluation = controller;
+
+    try {
+      const decision = await evaluateNavigationAudio(
+        { slide, pcm, truncated: this.audio.truncated },
+        this.host.env,
+        controller.signal,
+      );
+      if (controller.signal.aborted) {
+        console.log("SlidePilot omni decision dropped: presenter resumed speaking");
+        return;
+      }
+      logDecision(decision, { engine: "omni", speechMs });
+      if (!isSameView(slide, this.host.getSlide())) {
+        console.log("SlidePilot omni decision dropped: slide changed");
+        return;
+      }
+      this.host.onDecision(decision);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        console.log("SlidePilot omni decision dropped: presenter resumed speaking");
+        return;
+      }
+      console.error("SlidePilot omni evaluation failed", error);
+      this.host.onError(error instanceof Error ? error.message : "Clef-omni evaluation failed.");
+    } finally {
+      if (this.evaluation === controller) this.evaluation = null;
+    }
+  }
+
+  /** Returns true when an evaluation was in flight. */
+  private cancelEvaluation() {
+    const controller = this.evaluation;
+    this.evaluation = null;
+    controller?.abort();
+    return controller !== null;
   }
 }

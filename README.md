@@ -153,7 +153,7 @@ slidePilot:
   engine: omni
 ```
 
-The Worker logs each detected speech start, pause, and decision. To tune the pause detector, set `SLIDEPILOT_DEBUG_AUDIO=1` (for example, in `apps/worker/.dev.vars`) to also log input levels every 5 seconds. You can also set the Worker-wide default with a `SLIDEPILOT_ENGINE` variable (`flux` or `omni`). The deck setting wins. The browser console logs which engine is active when the microphone starts. Restart the microphone after changing the engine.
+The Worker logs each decision, and why a decision was dropped (for example, because the presenter resumed speaking). To tune the pause detector, set `SLIDEPILOT_DEBUG_AUDIO=1` (for example, in `apps/worker/.dev.vars`) to also log each detected speech start and pause, and input levels every 5 seconds. You can also set the Worker-wide default with a `SLIDEPILOT_ENGINE` variable (`flux` or `omni`). The deck setting wins. The browser console logs which engine is active when the microphone starts. Restart the microphone after changing the engine.
 
 Known limitations of the omni engine:
 

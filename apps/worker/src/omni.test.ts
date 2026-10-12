@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { SAMPLE_RATE } from "./audio";
-import { PauseTranscriber, evaluateNavigationAudio } from "./omni";
-import type { SlideContext } from "./types";
+import { OmniListener, evaluateNavigationAudio } from "./omni";
+import { join, silence, tone } from "./test-audio";
+import type { NavigationDecision, SlideContext } from "./types";
 
 const slide: SlideContext = {
   page: "2",
@@ -97,35 +98,109 @@ describe("Clef-omni evaluation", () => {
   });
 });
 
-describe("PauseTranscriber", () => {
-  it("reports levels every levelReportMs of audio", () => {
-    const levels: number[] = [];
-    const session = new PauseTranscriber(
-      { onAudio: () => {}, onSpeechStart: () => {}, onPause: () => {}, onLevels: (l) => levels.push(l.ms) },
-      { levelReportMs: 1_000 },
-    ).createSession();
-    for (let i = 0; i < 25; i++) session.feed(new Int16Array(1_600).buffer); // 2.5 s in 100 ms chunks
-    expect(levels).toEqual([1_000, 1_000]);
+describe("OmniListener", () => {
+  /** Clef-omni stand-in whose answers resolve only when the test says so. */
+  function deferredClefOmni() {
+    const { AI: immediate } = fakeClefOmni();
+    const requests: { inputs: any; signal: AbortSignal; answer(): void }[] = [];
+    const AI = {
+      run: (model: string, inputs: any, options: { signal: AbortSignal }) =>
+        new Promise((resolve, reject) => {
+          options.signal.addEventListener("abort", () => reject(new Error("aborted")));
+          requests.push({
+            inputs,
+            signal: options.signal,
+            answer: () => resolve(immediate.run(model, inputs, options)),
+          });
+        }),
+    } as unknown as Ai;
+    return { AI, requests };
+  }
+
+  function setup(initialSlide: SlideContext | null = slide) {
+    const { AI, requests } = deferredClefOmni();
+    const events: string[] = [];
+    const decisions: NavigationDecision[] = [];
+    let current = initialSlide;
+    const listener = new OmniListener({
+      env: { AI },
+      getSlide: () => current,
+      onSpeech: () => events.push("speech"),
+      onDecision: (decision) => decisions.push(decision),
+      onError: (message) => events.push(`error: ${message}`),
+    });
+    const session = listener.transcriber.createSession();
+    const say = (...parts: Int16Array[]) => session.feed(join(...parts).buffer as ArrayBuffer);
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+    return {
+      listener,
+      session,
+      say,
+      flush,
+      requests,
+      events,
+      decisions,
+      showSlide: (next: SlideContext) => (current = next),
+    };
+  }
+
+  it("evaluates at each pause and forwards the decision", async () => {
+    const t = setup();
+    t.say(tone(1_000, 0.2), silence(800));
+    expect(t.events).toEqual(["speech"]);
+    expect(t.requests).toHaveLength(1);
+
+    t.requests[0].answer();
+    await t.flush();
+    expect(t.decisions).toHaveLength(1);
+    expect(t.decisions[0].shouldAdvance).toBe(true);
   });
 
-  it("forwards audio and speech/pause events, and stops after close", () => {
-    const received: string[] = [];
-    let samples = 0;
-    const transcriber = new PauseTranscriber({
-      onAudio: (pcm) => (samples += pcm.length),
-      onSpeechStart: () => received.push("speech_start"),
-      onPause: () => received.push("pause"),
-    });
-    const session = transcriber.createSession();
+  it("drops the decision when the presenter resumes speaking", async () => {
+    const t = setup();
+    t.say(tone(1_000, 0.2), silence(800));
+    t.say(tone(200, 0.2));
 
-    const speech = new Int16Array(SAMPLE_RATE).map((_, i) => (i % 2 ? 6_000 : -6_000));
-    session.feed(speech.buffer);
-    session.feed(new Int16Array(SAMPLE_RATE).buffer);
-    expect(received).toEqual(["speech_start", "pause"]);
-    expect(samples).toBe(SAMPLE_RATE * 2);
+    expect(t.events).toEqual(["speech", "speech"]);
+    expect(t.requests[0].signal.aborted).toBe(true);
+    await t.flush();
+    expect(t.decisions).toEqual([]);
+  });
 
-    session.close();
-    session.feed(speech.buffer);
-    expect(samples).toBe(SAMPLE_RATE * 2);
+  it("drops the decision when the slide changed during evaluation", async () => {
+    const t = setup();
+    t.say(tone(1_000, 0.2), silence(800));
+    t.showSlide({ ...slide, clicks: 1, totalClicks: 2 });
+
+    t.requests[0].answer();
+    await t.flush();
+    expect(t.decisions).toEqual([]);
+  });
+
+  it("only sends audio from the current slide", () => {
+    const t = setup();
+    t.say(tone(2_000, 0.2));
+    t.listener.resetSlide();
+    t.say(tone(1_000, 0.2), silence(800));
+
+    const wavBytes = atob(t.requests[0].inputs.audio[0].base64).length;
+    expect(wavBytes).toBe(44 + SAMPLE_RATE * 1.8 * 2);
+  });
+
+  it("reports an error when no slide context has arrived", () => {
+    const t = setup(null);
+    t.say(tone(1_000, 0.2), silence(800));
+    expect(t.events).toContain("error: No slide context received yet.");
+    expect(t.requests).toHaveLength(0);
+  });
+
+  it("stops listening and cancels evaluation when the session closes", () => {
+    const t = setup();
+    t.say(tone(1_000, 0.2), silence(800));
+    t.session.close();
+    expect(t.requests[0].signal.aborted).toBe(true);
+
+    t.say(tone(1_000, 0.2), silence(800));
+    expect(t.requests).toHaveLength(1);
   });
 });

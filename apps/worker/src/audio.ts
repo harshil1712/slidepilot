@@ -103,14 +103,6 @@ export class PauseDetector {
     return levels;
   }
 
-  reset() {
-    this.pending = new Int16Array(0);
-    this.speaking = false;
-    this.loudRunMs = 0;
-    this.quietRunMs = 0;
-    this.voicedMs = 0;
-  }
-
   private processFrame(level: number): PauseEvent | null {
     const { frameMs, speechThreshold, silenceThreshold, speechStartMs, pauseMs, minSpeechMs } =
       this.options;

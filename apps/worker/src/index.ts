@@ -5,17 +5,11 @@ import {
   type WSMessage,
 } from "agents";
 import { withVoiceInput, WorkersAIFluxSTT } from "agents/voice";
-import { SAMPLE_RATE, SlideAudioBuffer } from "./audio";
-import { evaluateNavigation } from "./decision";
-import {
-  OMNI_MAX_AUDIO_SECONDS,
-  PauseTranscriber,
-  evaluateNavigationAudio,
-} from "./omni";
+import { evaluateNavigation, isSameView, logDecision } from "./decision";
+import { OmniListener } from "./omni";
 import type {
   ClientMessage,
   Engine,
-  NavigationDecision,
   PilotState,
   SlideContext,
 } from "./types";
@@ -47,52 +41,32 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
     keyterms: ["Cloudflare", "Clef", "Slidev", "Workers AI"],
   });
 
-  // Omni engine: in-memory only. Audio is too large for synced agent state.
-  private slideAudio = new SlideAudioBuffer(OMNI_MAX_AUDIO_SECONDS * SAMPLE_RATE);
-  private omniEvaluation: AbortController | null = null;
-  private activeEngines = new Map<string, Engine>();
+  // One omni listener per active call; audio stays in memory, never in state.
+  private omniListeners = new Map<string, OmniListener>();
 
   /**
-   * Chosen at call start. Returning null keeps the Flux `transcriber`; the omni
-   * engine swaps in a pause detector so Clef-omni can judge the raw audio.
+   * Picks the engine at call start. Returning null keeps the Flux
+   * `transcriber`; the omni engine replaces it with a pause detector.
    */
   createTranscriber(connection: Connection) {
-    const engine = this.resolveEngine();
-    this.activeEngines.set(connection.id, engine);
-    if (engine !== "omni") return null;
+    if (this.resolveEngine() !== "omni") {
+      this.omniListeners.delete(connection.id);
+      return null;
+    }
 
-    this.resetOmni();
-    let receivedAudio = false;
-    return new PauseTranscriber({
-      onAudio: (pcm) => {
-        if (!receivedAudio) {
-          receivedAudio = true;
-          console.log("SlidePilot omni receiving audio", { samples: pcm.length });
-        }
-        this.slideAudio.append(pcm);
+    const listener = new OmniListener({
+      env: this.env,
+      getSlide: () => this.state.slide,
+      onSpeech: () => this.send(connection, { type: "slidepilot:speech" }),
+      onDecision: (decision) => {
+        this.setState({ ...this.state, lastDecision: decision });
+        this.send(connection, decision);
       },
-      onSpeechStart: (event) => {
-        // The presenter resumed: drop any in-flight judgement and tell the
-        // addon to cancel a pending advance.
-        const aborted = this.abortOmniEvaluation();
-        console.log("SlidePilot omni speech started", {
-          atMs: event.atMs,
-          ...(aborted && { abortedEvaluation: true }),
-        });
-        this.send(connection, { type: "slidepilot:speech" });
-      },
-      onPause: (pause) => {
-        console.log("SlidePilot omni pause", {
-          atMs: pause.atMs,
-          speechMs: pause.speechMs,
-          slideAudioSeconds: this.slideAudio.samples / SAMPLE_RATE,
-        });
-        void this.evaluateAudio(connection, pause.speechMs);
-      },
-      ...(this.env.SLIDEPILOT_DEBUG_AUDIO === "1" && {
-        onLevels: (levels) => console.log("SlidePilot omni levels", levels),
-      }),
+      onError: (message) => this.send(connection, { type: "slidepilot:error", message }),
+      debug: this.env.SLIDEPILOT_DEBUG_AUDIO === "1",
     });
+    this.omniListeners.set(connection.id, listener);
+    return listener.transcriber;
   }
 
   afterTranscribe(transcript: string) {
@@ -101,14 +75,13 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
   }
 
   onCallStart(connection: Connection) {
-    const engine = this.activeEngines.get(connection.id) ?? "flux";
+    const engine: Engine = this.omniListeners.has(connection.id) ? "omni" : "flux";
     console.log("SlidePilot call started", { connectionId: connection.id, engine });
     this.send(connection, { type: "slidepilot:ready", engine });
   }
 
   onCallEnd(connection: Connection) {
-    this.activeEngines.delete(connection.id);
-    this.resetOmni();
+    this.omniListeners.delete(connection.id);
   }
 
   async onTranscript(text: string, connection: Connection) {
@@ -134,22 +107,10 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
         { slide, utterances },
         this.env,
       );
-      console.log("SlidePilot navigation decision", {
-        page: decision.page,
-        clicks: decision.clicks,
-        action: decision.action,
-        shouldAdvance: decision.shouldAdvance,
-        reason: decision.reason,
-        model: decision.model,
-        latencyMs: decision.latencyMs,
-        signals: decision.signals,
-      });
+      logDecision(decision, { engine: "flux" });
 
       // Ignore a decision if the presenter navigated while Clef was evaluating.
-      if (
-        this.state.slide?.page !== slide.page ||
-        this.state.slide?.clicks !== slide.clicks
-      ) return;
+      if (!isSameView(slide, this.state.slide)) return;
 
       this.setState({ ...this.state, utterances, lastDecision: decision });
       this.send(connection, decision);
@@ -163,103 +124,12 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
     }
   }
 
-  private async evaluateAudio(connection: Connection, speechMs: number) {
-    const slide = this.state.slide;
-    if (!slide) {
-      console.warn("SlidePilot omni skipped: no slide context received yet");
-      this.send(connection, {
-        type: "slidepilot:error",
-        message: "No slide context received yet.",
-      });
-      return;
-    }
-
-    const pcm = this.slideAudio.toPcm();
-    if (pcm.length === 0) {
-      console.warn("SlidePilot omni skipped: no audio buffered for this slide");
-      return;
-    }
-
-    this.abortOmniEvaluation();
-    const controller = new AbortController();
-    this.omniEvaluation = controller;
-
-    try {
-      const decision = await evaluateNavigationAudio(
-        {
-          slide,
-          pcm,
-          truncated: this.slideAudio.truncated,
-          sampleRate: SAMPLE_RATE,
-        },
-        this.env,
-        controller.signal,
-      );
-      // Speech resumed (or the call ended) while Clef-omni was listening.
-      if (controller.signal.aborted) {
-        console.log("SlidePilot omni decision dropped: speech resumed", {
-          latencyMs: decision.latencyMs,
-          shouldAdvance: decision.shouldAdvance,
-        });
-        return;
-      }
-      this.logDecision(decision, { engine: "omni", speechMs });
-
-      if (
-        this.state.slide?.page !== slide.page ||
-        this.state.slide?.clicks !== slide.clicks
-      ) {
-        console.log("SlidePilot omni decision dropped: slide changed during evaluation");
-        return;
-      }
-
-      this.setState({ ...this.state, lastDecision: decision });
-      this.send(connection, decision);
-    } catch (error) {
-      if (controller.signal.aborted) {
-        console.log("SlidePilot omni evaluation aborted: speech resumed");
-        return;
-      }
-      console.error("SlidePilot omni evaluation failed", error);
-      this.send(connection, {
-        type: "slidepilot:error",
-        message:
-          error instanceof Error ? error.message : "Clef-omni evaluation failed.",
-      });
-    } finally {
-      if (this.omniEvaluation === controller) this.omniEvaluation = null;
-    }
-  }
-
-  private logDecision(decision: NavigationDecision, extra: Record<string, unknown>) {
-    console.log("SlidePilot navigation decision", {
-      ...extra,
-      page: decision.page,
-      clicks: decision.clicks,
-      action: decision.action,
-      shouldAdvance: decision.shouldAdvance,
-      reason: decision.reason,
-      model: decision.model,
-      latencyMs: decision.latencyMs,
-      signals: decision.signals,
-    });
-  }
-
   private resolveEngine(): Engine {
     return this.state.engine ?? normalizeEngine(this.env.SLIDEPILOT_ENGINE) ?? "flux";
   }
 
-  /** Returns true when an in-flight evaluation was aborted. */
-  private abortOmniEvaluation() {
-    const controller = this.omniEvaluation;
-    this.omniEvaluation = null;
-    controller?.abort();
-    return Boolean(controller);
-  }
-
-  private resetOmni() {
-    this.abortOmniEvaluation();
-    this.slideAudio.clear();
+  private resetOmniSlide() {
+    for (const listener of this.omniListeners.values()) listener.resetSlide();
   }
 
   onMessage(connection: Connection, message: WSMessage) {
@@ -273,7 +143,7 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
     }
 
     if (parsed.type === "slidepilot:reset") {
-      this.resetOmni();
+      this.resetOmniSlide();
       this.setState({ ...this.state, utterances: [], lastDecision: null });
       return;
     }
@@ -282,7 +152,7 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
       const context = normalizeSlideContext(parsed.context);
       const changedSlide = this.state.slide?.page !== context.page;
       // Like the transcript, slide audio spans clicks but resets per slide.
-      if (changedSlide) this.resetOmni();
+      if (changedSlide) this.resetOmniSlide();
       this.setState({
         slide: context,
         utterances: changedSlide ? [] : this.state.utterances,

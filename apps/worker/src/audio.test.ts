@@ -8,24 +8,7 @@ import {
   toBase64,
   type PauseEvent,
 } from "./audio";
-
-/** A constant-amplitude square wave; its RMS equals `amplitude`. */
-function tone(ms: number, amplitude: number): Int16Array {
-  const samples = new Int16Array((SAMPLE_RATE * ms) / 1_000);
-  const value = Math.round(amplitude * 32_767);
-  for (let i = 0; i < samples.length; i++) samples[i] = i % 2 ? value : -value;
-  return samples;
-}
-const silence = (ms: number) => tone(ms, 0);
-const join = (...parts: Int16Array[]) => {
-  const out = new Int16Array(parts.reduce((n, p) => n + p.length, 0));
-  let offset = 0;
-  for (const p of parts) {
-    out.set(p, offset);
-    offset += p.length;
-  }
-  return out;
-};
+import { join, silence, tone } from "./test-audio";
 
 describe("PauseDetector", () => {
   it("reports speech start and a pause after enough silence", () => {
