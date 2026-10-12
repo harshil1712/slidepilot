@@ -1,0 +1,31 @@
+README.md
+  s_0e388aa105b35d::t_0fd14c57e9355f 156
+apps/worker/src/audio.test.ts
+  s_0e388aa105b35d::t_7bba9a12a4d11f 11
+apps/worker/src/decision.ts
+  s_0e388aa105b35d::t_7d8f9cdf57d0c2 145-166
+apps/worker/src/index.ts
+  s_0e388aa105b35d::t_01015aad73e473 8-9,44-45,48-49,52-55,57-63,65-66,68-69,78,84,110,113,131-132,146,155
+apps/worker/src/omni.test.ts
+  s_0e388aa105b35d::t_ddba360ebeefd6 3-5,101-118,120-130,132-195,197-201,203-204
+apps/worker/src/omni.ts
+  s_0e388aa105b35d::t_6e5b4faa457c40 3,7,15-16,31,77,89,106,121-132,135,138-140,142-162,164,169-174,176-183,185-189,194,198-246
+apps/worker/src/test-audio.ts
+  s_0e388aa105b35d::t_0c841e7dbd2919 1-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "65d651ce0061cb7d1e732d4be1613cedb406d816",
+  "prompts": {},
+  "sessions": {
+    "s_0e388aa105b35d": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a121f7-f7e1-7601-b0f4-e9525d99631a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <18901032+harshil1712@users.noreply.github.com>"
+    }
+  }
+}
