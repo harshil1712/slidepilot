@@ -1,0 +1,23 @@
+README.md
+  s_0e388aa105b35d::t_2ff7861be4005e 156
+apps/worker/src/audio.test.ts
+  s_0e388aa105b35d::t_aa84bbd7718a56 66-78
+apps/worker/src/omni.test.ts
+  s_0e388aa105b35d::t_5828213390f56e 101-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2535d3aaf4a4c109f7e9365af6753571bc110d8b",
+  "prompts": {},
+  "sessions": {
+    "s_0e388aa105b35d": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a121f7-f7e1-7601-b0f4-e9525d99631a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <18901032+harshil1712@users.noreply.github.com>"
+    }
+  }
+}
