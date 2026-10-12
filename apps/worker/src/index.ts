@@ -45,8 +45,8 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
   private omniListeners = new Map<string, OmniListener>();
 
   /**
-   * Picks the engine at call start. Returning null keeps the Flux
-   * `transcriber`; the omni engine replaces it with a pause detector.
+   * Picks the engine at call start. The omni engine (default) replaces STT
+   * with a pause detector; returning null keeps the Flux `transcriber`.
    */
   createTranscriber(connection: Connection) {
     if (this.resolveEngine() !== "omni") {
@@ -125,7 +125,7 @@ export class SlidePilot extends VoiceInputAgent<Env, PilotState> {
   }
 
   private resolveEngine(): Engine {
-    return this.state.engine ?? normalizeEngine(this.env.SLIDEPILOT_ENGINE) ?? "flux";
+    return this.state.engine ?? normalizeEngine(this.env.SLIDEPILOT_ENGINE) ?? "omni";
   }
 
   private resetOmniSlide() {

@@ -14,7 +14,7 @@ interface SlidePilotConfig {
   stillExplainingCeiling?: number;
   cooldownMs?: number;
   advanceDelayMs?: number;
-  /** "flux" (default) or experimental "omni". Takes effect when the mic starts. */
+  /** "omni" (default) or "flux". Takes effect when the mic starts. */
   engine?: "flux" | "omni";
 }
 
@@ -149,7 +149,7 @@ function handleServerMessage(value: unknown) {
   const message = value as ServerMessage;
 
   if (message.type === "slidepilot:ready") {
-    console.info(`[SlidePilot] listening with the ${message.engine ?? "flux"} engine`);
+    console.info(`[SlidePilot] listening with the ${message.engine ?? "unknown"} engine`);
     sendSlideContext();
     return;
   }

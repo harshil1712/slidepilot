@@ -5,22 +5,24 @@
 
 > **Experimental:** SlidePilot is an early proof of concept built on experimental voice APIs. Rehearse with it before using it in a live presentation, and always keep manual navigation available.
 
-**Your voice is the clicker.** SlidePilot listens to a presenter, asks [Clef](https://developers.cloudflare.com/workers-ai/models/clef-flash/) on Workers AI whether the current slide is semantically complete, and advances a [Slidev](https://sli.dev/) deck only when deterministic safety checks pass.
+**Your voice is the clicker.** SlidePilot listens to a presenter, asks [Clef-omni](https://developers.cloudflare.com/workers-ai/models/clef-omni/) on Workers AI whether the current slide is semantically complete, and advances a [Slidev](https://sli.dev/) deck only when deterministic safety checks pass.
 
 ```text
-Slidev addon → VoiceClient → Cloudflare Voice Input Agent → Workers AI Flux STT
-                                                        ↘ Workers AI Clef → policy → Slidev navigation
+Slidev addon → VoiceClient → Cloudflare Voice Input Agent → pause detector
+                                                        ↘ Workers AI Clef-omni (slide audio) → policy → Slidev navigation
 ```
 
 ## How it works
 
 1. The Slidev addon streams microphone audio to a Cloudflare Agent over WebSockets.
-2. Workers AI Flux produces interim text and completed utterances.
-3. Clef evaluates four typed questions: whether advancing feels natural, whether the core idea is complete, whether the presenter is continuing, and whether this is a natural slide boundary.
+2. The Worker keeps the current slide's audio and runs a pause detector on it.
+3. Each time the presenter pauses for about 700 ms, Clef-omni hears the slide's audio, up to the most recent 60 seconds, and gets the slide's content and notes. It answers four typed questions: whether advancing feels natural, whether the core idea is complete, whether the presenter is continuing, and whether this is a natural slide boundary. Because it hears the audio rather than a transcript, intonation and trailing off count as evidence.
 4. TypeScript—not the model—applies the navigation policy.
 5. The addon checks cooldown and stale-decision guards before calling `useNav().next()`, which reveals the next click or, after the last click, moves to the next slide.
 
-Explicit phrases such as “next slide” are not required. Semantic completion is the primary signal, while positive evidence that the presenter is continuing remains a hard veto. If the presenter resumes speaking during the short navigation delay, the pending advance is cancelled.
+Explicit phrases such as “next slide” are not required. Semantic completion is the primary signal, while positive evidence that the presenter is continuing remains a hard veto. If the presenter resumes speaking while Clef-omni is evaluating or during the short navigation delay, the decision is dropped and the pending advance is cancelled.
+
+A transcript-based engine (Flux speech-to-text with Clef-flash) is also available; see [Engines](#engines).
 
 Manual keyboard and clicker navigation always continue to work.
 
@@ -82,7 +84,7 @@ Deploy the Worker:
 pnpm deploy
 ```
 
-Clef (`@cf/cloudflare/clef-flash`) runs through the Worker's existing Workers AI binding, so no extra API key is needed.
+Clef-omni (`@cf/cloudflare/clef-omni`), and Flux with Clef-flash for the `flux` engine, run through the Worker's existing Workers AI binding, so no extra API key is needed.
 
 Copy the `*.workers.dev` hostname printed by Wrangler into your deck's `slidePilot.host` setting. Do not include a path; both hostname-only and `https://` forms are accepted.
 
@@ -112,7 +114,7 @@ pnpm dev:slides
 
 Open the URL printed by Slidev, enter **Presenter Mode**, click the **MIC OFF** indicator in the lower-right (or press **Shift+V**), and grant microphone permission. The indicator is never mounted in viewer/play mode. The cover and final slides are intentionally manual; leave the cover with the keyboard before testing automatic navigation.
 
-Flux streaming STT and Clef both work with a local Durable Object and Wrangler's remote Workers AI binding. Nova-3 did not return its WebSocket in the same local setup during development, so the project currently uses Flux.
+Both engines work with a local Durable Object and Wrangler's remote Workers AI binding. The browser console logs which engine is active when the microphone starts. If nothing happens when you speak, check that the browser is using the intended microphone.
 
 ## Configuration
 
@@ -142,25 +144,25 @@ slidePilot:
 | `confidence` | `0.30` | Minimum confidence in Clef's action choice. |
 | `cooldownMs` | `2000` | Minimum interval between automatic advances. |
 | `advanceDelayMs` | `1000` | Cancellable delay before navigation. |
-| `engine` | Worker default (`flux`) | `flux`, or the experimental `omni` engine described below. Applies when the microphone starts. |
+| `engine` | Worker default (`omni`) | `omni` or `flux`; see [Engines](#engines). Applies when the microphone starts. |
 
-### Experimental: Clef-omni engine
+### Engines
 
-With `engine: omni`, SlidePilot skips speech-to-text. The Worker runs an energy-based pause detector on the microphone audio and, each time the presenter pauses for about 700 ms, sends [Clef-omni](https://developers.cloudflare.com/workers-ai/models/clef-omni/) the current slide's audio (the most recent 60 seconds) along with the slide context. Clef-omni hears intonation and trailing-off as well as words. It answers the same four questions, and the same TypeScript policy and thresholds decide. When the presenter starts speaking again, any in-flight evaluation is dropped and a pending advance is cancelled.
+| Engine | When it evaluates | What Clef hears | Model |
+| --- | --- | --- | --- |
+| `omni` (default) | At each pause of about 700 ms, found by an energy-based pause detector | The current slide's audio, up to the most recent 60 seconds | Clef-omni |
+| `flux` | At each end of turn detected by Flux speech-to-text | The text of the last 12 utterances on the slide | Clef-flash |
+
+Both engines ask the same four questions and use the same TypeScript policy and thresholds. To use the transcript engine for a deck:
 
 ```yaml
 slidePilot:
-  engine: omni
+  engine: flux
 ```
 
-The Worker logs each decision, and why a decision was dropped (for example, because the presenter resumed speaking). To tune the pause detector, set `SLIDEPILOT_DEBUG_AUDIO=1` (for example, in `apps/worker/.dev.vars`) to also log each detected speech start and pause, and input levels every 5 seconds. You can also set the Worker-wide default with a `SLIDEPILOT_ENGINE` variable (`flux` or `omni`). The deck setting wins. The browser console logs which engine is active when the microphone starts. Restart the microphone after changing the engine.
+To change the default for every deck, set a `SLIDEPILOT_ENGINE` variable (`omni` or `flux`) on the Worker. A deck's `engine` setting overrides it. Restart the microphone after changing the engine.
 
-Known limitations of the omni engine:
-
-- There is no transcript.
-- The thresholds were tuned on Flux transcripts.
-- The fixed loudness thresholds assume a close presenter microphone. Applause or audience noise registers as speech and conservatively cancels pending advances.
-- On long slides, Clef-omni hears only the last 60 seconds, so earlier explanation is invisible to `slide_complete`.
+The Worker logs each decision, and why a decision was dropped (for example, because the presenter resumed speaking). To tune the pause detector, set `SLIDEPILOT_DEBUG_AUDIO=1` (for example, in `apps/worker/.dev.vars`) to also log each detected speech start and pause, and input levels every 5 seconds. The thresholds are in `DEFAULTS` in `apps/worker/src/audio.ts`.
 
 Disable automatic navigation for an individual slide:
 
@@ -209,11 +211,11 @@ curl http://localhost:8787/api/evaluate \
 
 ## Authentication, privacy, and cost
 
-SlidePilot mounts the microphone indicator only in Slidev presenter mode; viewers cannot enable it from the viewer UI. **This is not an authorization boundary:** without separate access controls, anyone who can open the deck's presenter URL can enter presenter mode, and the Worker does not currently authenticate its WebSocket or evaluation endpoint. A publicly deployed Worker can be reached by other clients and may incur Workers AI usage for both speech-to-text and Clef. To ensure only the actual presenter can use the voice agent, restrict access to the presenter route **and** the Worker with an authentication layer (for example, Cloudflare Access) appropriate for your deployment. Do not put a shared secret in deck headmatter: it is delivered to viewers.
+SlidePilot mounts the microphone indicator only in Slidev presenter mode; viewers cannot enable it from the viewer UI. **This is not an authorization boundary:** without separate access controls, anyone who can open the deck's presenter URL can enter presenter mode, and the Worker does not currently authenticate its WebSocket or evaluation endpoint. A publicly deployed Worker can be reached by other clients and may incur Workers AI usage for Clef-omni audio evaluation (or, with the `flux` engine, speech-to-text and Clef-flash). To ensure only the actual presenter can use the voice agent, restrict access to the presenter route **and** the Worker with an authentication layer (for example, Cloudflare Access) appropriate for your deployment. Do not put a shared secret in deck headmatter: it is delivered to viewers.
 
 If `curl` returns `403` with `error code: 1050`, the Cloudflare account's Access default-deny policy is blocking the hostname before requests reach the Worker. For a protected deployment, create a self-hosted Access application with an Allow policy for the presenter; unauthenticated `curl` requests will still be blocked. An exemption or Bypass policy is suitable only for an intentionally public demo.
 
-With the default engine, audio is processed by Workers AI using Deepgram Flux. With the experimental `omni` engine, the current slide's raw audio (up to the most recent 60 seconds) is sent to Clef-omni on Workers AI at each pause and held in Worker memory only until the slide changes or the call ends. Completed transcripts plus the current slide's visible content and speaker notes are sent to Clef on Workers AI for evaluation. No model credentials are sent to the Slidev client.
+With the default `omni` engine, the current slide's raw audio (up to the most recent 60 seconds) and the slide's visible content and speaker notes are sent to Clef-omni on Workers AI at each pause. The audio is held in Worker memory only until the slide changes or the call ends. With the `flux` engine, audio is transcribed by Workers AI using Deepgram Flux, and completed transcripts plus the slide's content and notes are sent to Clef-flash. No model credentials are sent to the Slidev client.
 
 ## Repository layout
 
@@ -236,7 +238,10 @@ Policy tests cover semantic completion without magic words, explicit continuatio
 ## Current limitations
 
 - On slides with clicks, Clef knows how many clicks are revealed but still receives the whole slide's content and notes, so it has to infer which part is on screen.
-- Thresholds are starting values and should be calibrated with rehearsal transcripts.
+- Thresholds are starting values, originally tuned on Flux transcripts. Calibrate them with rehearsals.
+- The omni engine has no transcript. Its pause detector uses fixed loudness thresholds that assume a close presenter microphone. Applause or audience noise registers as speech and conservatively cancels pending advances.
+- On long slides, the omni engine hears only the last 60 seconds, so earlier explanation is invisible to `slide_complete`.
+- The `/api/evaluate` endpoint tests the text-based `flux` decision path only.
 - Slide content and notes are sent as text; very large values are truncated server-side.
 - `agents/voice` is experimental and pinned to an exact version.
 - Presenter-only UI is not authentication; protect the presenter route and Worker separately in non-demo deployments.

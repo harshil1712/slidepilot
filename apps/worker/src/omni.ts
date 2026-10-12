@@ -1,4 +1,4 @@
-// Experimental engine: a pause detector replaces Flux STT, and Clef-omni hears
+// Default engine: a pause detector replaces speech-to-text, and Clef-omni hears
 // the presenter's audio directly instead of reading a transcript.
 import type { Transcriber, TranscriberSession } from "agents/voice";
 import {

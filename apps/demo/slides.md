@@ -15,7 +15,7 @@ slidePilot:
   confidence: 0.3
   cooldownMs: 2000
   advanceDelayMs: 1000
-  engine: omni  # experimental: pause detection + Clef-omni on raw audio
+  # engine: flux  # default is omni; flux uses Flux STT + Clef-flash on transcripts
   mode: manual
 fonts:
   sans: IBM Plex Sans
@@ -47,17 +47,17 @@ title: Voice hears
 # Voice<br><span class="outline">hears.</span>
 
 <div class="statement">
-Continuous speech-to-text turns the presenter’s microphone into completed utterances.
+A pause detector listens to the presenter’s microphone and marks every moment they stop speaking.
 </div>
 
 <div class="technical">
 <span>Cloudflare Agent</span>
-<span>Flux STT</span>
+<span>Pause detection</span>
 <span>WebSocket audio</span>
 </div>
 
 <!--
-The first job belongs to Cloudflare's Voice SDK. It streams microphone audio to a durable voice input agent and turns speech into completed utterances. Before we move on, there is one more detail. Interim words can appear in the interface, but only a final utterance is sent for a decision. With that, the voice layer is complete and we can look at Clef.
+The first job belongs to Cloudflare's Voice SDK. It streams microphone audio to a durable voice input agent, which keeps the audio for the current slide. Before we move on, there is one more detail. A simple pause detector decides when to ask for a decision, but it never decides whether a thought is finished. With that, the voice layer is complete and we can look at Clef.
 -->
 
 ---
@@ -77,7 +77,7 @@ title: Clef decides
 <p class="caption">One state. Four typed questions. One conservative code path.</p>
 
 <!--
-Clef receives the current slide, its notes, the next slide title, and the rolling transcript. It answers several narrow questions in parallel. Code then combines those probabilities using conservative safety thresholds. The model provides judgment, but ordinary code remains in control. That is the entire decision layer. Now let's look at how Slidev acts.
+At each pause, Clef-omni receives the current slide, its notes, the next slide title, and the presenter's audio for this slide. Because it hears the audio, tone of voice counts as evidence. It answers several narrow questions in parallel. Code then combines those probabilities using conservative safety thresholds. The model provides judgment, but ordinary code remains in control. That is the entire decision layer. Now let's look at how Slidev acts.
 -->
 
 ---
@@ -114,15 +114,15 @@ title: The complete loop
 <div class="pipeline">
   <div><b>MIC</b><small>16 kHz PCM</small></div>
   <i>→</i>
-  <div><b>VOICE AGENT</b><small>speech → text</small></div>
+  <div><b>VOICE AGENT</b><small>speech → pauses</small></div>
   <i>→</i>
-  <div><b>CLEF</b><small>text → probabilities</small></div>
+  <div><b>CLEF-OMNI</b><small>audio → probabilities</small></div>
   <i>→</i>
   <div><b>SLIDEV</b><small>decision → action</small></div>
 </div>
 
 <!--
-The microphone captures audio. A Cloudflare voice input agent produces utterances. Clef evaluates whether the presenter has completed the current thought. The Slidev addon applies a conservative policy and advances. Each component has exactly one job. That's the whole proof of concept.
+The microphone captures audio. A Cloudflare voice input agent detects pauses. Clef-omni listens and evaluates whether the presenter has completed the current thought. The Slidev addon applies a conservative policy and advances. Each component has exactly one job. That's the whole proof of concept.
 -->
 
 ---

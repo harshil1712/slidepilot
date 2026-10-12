@@ -43,8 +43,8 @@ export interface NavigationDecision {
 }
 
 /**
- * "flux": Flux STT end-of-turn → Clef-flash on the transcript (default).
- * "omni": experimental pause detection → Clef-omni on the presenter's audio.
+ * "omni": pause detection → Clef-omni on the presenter's audio (default).
+ * "flux": Flux STT end-of-turn → Clef-flash on the transcript.
  */
 export type Engine = "flux" | "omni";
 
