@@ -13,7 +13,7 @@
     "@slidev/client": "53.0.0",
     "@slidev/theme-default": "0.25.0",
     "slidev-addon-slidepilot": "workspace:*",
-    "vue": "^3.5.43"
+    "vue": "^3.5.44"
   },
   "devDependencies": {
     "@slidev/cli": "53.0.0"
